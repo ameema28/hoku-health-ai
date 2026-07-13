@@ -2,7 +2,8 @@
 Hoku Health Care - Security Module (Stub).
 
 Placeholder implementations for JWT authentication, password hashing,
-and user retrieval. Will be fully implemented by Backend Lead (Talha).
+and user retrieval. Uses HTTPBearer for cleaner Swagger UI token input.
+Will be fully implemented by Backend Lead (Talha).
 """
 
 import logging
@@ -10,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
@@ -19,7 +20,9 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
+
+# HTTPBearer gives Swagger a simple "Value" field for Bearer tokens
+security = HTTPBearer(auto_error=False)
 
 
 def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:
@@ -70,16 +73,19 @@ def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
 
-async def get_current_user(token: Optional[str] = Depends(oauth2_scheme)) -> Dict[str, Any]:
+async def get_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
+) -> Dict[str, Any]:
     """
     Stub dependency to retrieve the current authenticated user.
 
+    Uses HTTPBearer for a clean Swagger UI token input field.
     In production, this will validate the JWT token and query the
     users table. For now, returns a mock user to unblock AI route
     development.
 
     Args:
-        token: JWT token from Authorization header.
+        credentials: HTTPAuthorizationCredentials from Bearer header.
 
     Returns:
         Dict[str, Any]: Mock user dictionary.
@@ -87,7 +93,7 @@ async def get_current_user(token: Optional[str] = Depends(oauth2_scheme)) -> Dic
     Raises:
         HTTPException: If token is missing or invalid.
     """
-    if token is None:
+    if credentials is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",
@@ -95,10 +101,17 @@ async def get_current_user(token: Optional[str] = Depends(oauth2_scheme)) -> Dic
         )
 
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        payload = jwt.decode(
+            credentials.credentials,
+            settings.SECRET_KEY,
+            algorithms=[settings.ALGORITHM],
+        )
         user_id: Optional[int] = payload.get("sub")
         if user_id is None:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token",
+            )
         # Stub: return mock user. Talha will replace with DB lookup.
         return {"id": int(user_id), "role": "patient", "email": "stub@hoku.health"}
     except JWTError as exc:

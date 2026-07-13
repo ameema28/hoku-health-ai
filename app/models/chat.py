@@ -1,13 +1,15 @@
 """
-Hoku Health Care - Chat History Model.
+Hoku Health Care - Chat History Model (SQLAlchemy 2.0).
 
-SQLAlchemy model for persisting AI chatbot interactions.
-Enables conversation history retrieval and audit trails.
+Declarative model for persisting AI chatbot interactions using
+SQLAlchemy 2.0 mapped_column syntax for type safety and modern ORM patterns.
 """
 
 from datetime import datetime, timezone
+from typing import Optional
 
-from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import DateTime, Index, Integer, String, Text
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 
@@ -16,28 +18,35 @@ class ChatHistory(Base):
     """
     Represents a single turn in an AI chatbot conversation.
 
+    Each row stores the user message, the AI reply, the classified intent,
+    and a timestamp for audit and context retrieval.
+
     Attributes:
-        id: Primary key.
-        user_id: Foreign key to the users table.
-        message: User's input message.
-        ai_response: AI-generated response text.
-        intent: Classified intent of the message (e.g., 'symptom', 'booking').
-        created_at: Timestamp of the conversation turn.
+        id: Primary key (auto-increment).
+        user_id: Foreign key referencing the users table.
+        message: Raw user input (sanitized before persistence).
+        ai_response: Generated AI response text.
+        intent: Classified intent (e.g., 'symptom', 'booking', 'general_health').
+        created_at: UTC timestamp of the conversation turn.
     """
 
     __tablename__ = "chat_history"
 
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    message = Column(Text, nullable=False)
-    ai_response = Column(Text, nullable=True)
-    intent = Column(String(100), nullable=True)
-    created_at = Column(
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(
+    Integer,
+    nullable=False,
+)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    ai_response: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    intent: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
 
+    # Composite indexes for fast lookups by user and time-range queries
     __table_args__ = (
         Index("ix_chat_history_user_id", "user_id"),
         Index("ix_chat_history_created_at", "created_at"),
@@ -52,7 +61,7 @@ class ChatHistory(Base):
 
     def to_dict(self) -> dict:
         """
-        Serialize the chat history entry to a dictionary.
+        Serialize the chat history entry to a plain dictionary.
 
         Returns:
             dict: Flat dictionary with all column values.

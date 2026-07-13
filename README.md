@@ -9,7 +9,7 @@ a home healthcare platform serving patients in Pakistan, UAE, and UK.
 
 - **Framework**: FastAPI (Python)
 - **AI/LLM**: Groq API (Llama 3 / Mixtral) via LangChain
-- **Database**: PostgreSQL + SQLAlchemy + Alembic
+- **Database**: PostgreSQL + SQLAlchemy 2.0 + Alembic
 - **Auth**: JWT (stubbed for AI module setup)
 - **Embeddings**: sentence-transformers (all-MiniLM-L6-v2) — stubbed for RAG
 
@@ -18,7 +18,6 @@ a home healthcare platform serving patients in Pakistan, UAE, and UK.
 ### 1. Prerequisites
 
 - Python 3.10+
-- PostgreSQL 14+ running locally
 - Groq API key ([Get one here](https://console.groq.com/keys))
 
 ### 2. Installation
@@ -39,15 +38,22 @@ pip install -r requirements.txt
 
 ```bash
 cp .env.example .env
-# Edit .env and fill in your DATABASE_URL and GROQ_API_KEY
+# Edit .env and fill in your GROQ_API_KEY
 ```
 
-### 4. Database Setup
+**For local development without PostgreSQL**, change `DATABASE_URL` in `.env`:
+```bash
+DATABASE_URL=sqlite:///./hoku_health.db
+```
+
+### 4. Run the CRUD Test (No Server Needed)
 
 ```bash
-# Run migrations
-alembic upgrade head
+python test_crud.py
+# Expected output: "All CRUD tests passed"
 ```
+
+This test uses SQLite and verifies all database operations work correctly.
 
 ### 5. Run the Server
 
@@ -67,25 +73,43 @@ Once running, open your browser:
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/api/ai/chat` | AI Health Chatbot |
+| GET | `/api/ai/chat/history` | Chat History (paginated) |
 | GET | `/api/ai/health` | Service Health Check |
 
 ## Project Structure
 
 ```
 hoku-health-backend/
+├── alembic/           # Database migrations
+│   └── versions/
+│       └── 001_create_chat_history.py
 ├── app/
+│   ├── ai/            # Chatbot engine (Groq LLM)
+│   ├── api/           # API routers
+│   │   └── v1/
+│   │       └── endpoints/
+│   │           └── ai.py
 │   ├── core/          # Config, DB, security, dependencies
+│   ├── crud/          # Database access layer
+│   │   └── chat.py
+│   ├── middleware/    # CORS & error handlers
 │   ├── models/        # SQLAlchemy models
 │   ├── schemas/       # Pydantic schemas
-│   ├── api/           # API routers
-│   ├── ai/            # Chatbot engine
 │   ├── services/      # Business logic layer
-│   ├── utils/         # Constants & validators
-│   └── middleware/    # CORS & error handlers
-├── alembic/           # Database migrations
+│   └── utils/         # Constants & validators
+├── .env.example
 ├── requirements.txt
-└── .env.example
+└── test_crud.py       # CRUD verification script
 ```
+
+## Day 1 Deliverables
+
+- **SQLAlchemy 2.0** ChatHistory model with indexes
+- **CRUD layer** with atomic transactions and logging
+- **GET /api/ai/chat/history** endpoint with pagination
+- **Custom exceptions** (UserNotFoundException, DatabaseOperationException)
+- **Input validators** (sanitize_message, validate_message_length)
+- **SQLite test script** for offline verification
 
 ## Clinical Safety
 

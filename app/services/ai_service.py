@@ -1,7 +1,7 @@
 """
 Hoku Health Care - AI Service Layer.
 
-Orchestrates chatbot interactions, persists conversation history,
+Orchestrates chatbot interactions, delegates persistence to the CRUD layer,
 and handles business logic between API endpoints and AI engines.
 """
 
@@ -11,7 +11,8 @@ from typing import Any, Dict
 from sqlalchemy.orm import Session
 
 from app.ai.chatbot import HokuChatbot
-from app.models.chat import ChatHistory
+from app.crud.chat import create_chat_history
+from app.core.exceptions import DatabaseOperationException
 from app.utils.constants import SAFETY_DISCLAIMER
 
 logger = logging.getLogger(__name__)
@@ -25,10 +26,10 @@ async def process_chat(message: str, user_id: int, db: Session) -> Dict[str, Any
     Process a user chat message end-to-end.
 
     Steps:
-    1. Generate AI response via HokuChatbot.
+    1. Generate AI response via HokuChatbot (mock for Day 1).
     2. Classify intent (stubbed for setup day).
-    3. Persist conversation to chat_history table.
-    4. Ensure safety disclaimer is present.
+    3. Persist conversation via the CRUD layer.
+    4. Ensure safety disclaimer is present in the reply.
 
     Args:
         message: Sanitized user message.
@@ -39,7 +40,7 @@ async def process_chat(message: str, user_id: int, db: Session) -> Dict[str, Any
         Dict[str, Any]: Response payload matching ChatMessageResponse.
     """
     try:
-        # Generate AI response
+        # Generate AI response (mock until Day 2 Groq integration)
         response = await _chatbot.get_response(message, user_id)
 
         # Ensure safety disclaimer is present
@@ -51,24 +52,27 @@ async def process_chat(message: str, user_id: int, db: Session) -> Dict[str, Any
         # Classify intent (stubbed — will use fast model in production)
         intent = "general_health"
 
-        # Persist to database
-        history_entry = ChatHistory(
+        # Persist via CRUD layer for atomic transaction handling
+        create_chat_history(
+            db=db,
             user_id=user_id,
             message=message,
             ai_response=reply,
             intent=intent,
         )
-        db.add(history_entry)
-        db.commit()
-        db.refresh(history_entry)
-
-        logger.info("Chat persisted: id=%s, user_id=%s", history_entry.id, user_id)
 
         return response
 
+    except DatabaseOperationException:
+        # Let database exceptions propagate to the endpoint handler
+        raise
     except Exception as exc:
-        logger.exception("Error processing chat for user %s: %s", user_id, exc)
-        # Return a safe fallback without persisting failed turns
+        logger.exception(
+            "Error processing chat for user %s: %s",
+            user_id,
+            exc,
+        )
+        # Graceful fallback — do not persist failed turns
         return {
             "reply": (
                 "I'm sorry, I'm having trouble responding right now. "

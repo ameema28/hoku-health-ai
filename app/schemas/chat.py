@@ -1,14 +1,14 @@
 """
-Hoku Health Care - Chat Pydantic Schemas.
+Hoku Health Care - Chat Pydantic Schemas (FINAL).
 
-Request/response models for the AI chatbot API and chat history
-persistence layer. Ensures runtime validation and OpenAPI documentation.
+Request/response models for the AI chatbot API, chat history persistence,
+and session retrieval. All schemas use Pydantic v2 ConfigDict for ORM mode.
 """
 
 from datetime import datetime
-from typing import Optional
+from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ChatMessageRequest(BaseModel):
@@ -19,6 +19,8 @@ class ChatMessageRequest(BaseModel):
         message: The user's health-related question or symptom description.
         userId: The authenticated user's database ID.
     """
+
+    model_config = ConfigDict(from_attributes=True)
 
     message: str = Field(
         ...,
@@ -46,6 +48,8 @@ class ChatMessageResponse(BaseModel):
         shouldSeeDoctor: Whether the user should seek professional care.
     """
 
+    model_config = ConfigDict(from_attributes=True)
+
     reply: str = Field(..., description="AI-generated conversational response.")
     suggestedSpecialist: Optional[str] = Field(
         None,
@@ -65,8 +69,10 @@ class ChatHistoryCreate(BaseModel):
     """
     Internal schema for inserting a new chat history record.
 
-    Not exposed directly via API; used by the service layer.
+    Not exposed directly via API; used by the service and CRUD layers.
     """
+
+    model_config = ConfigDict(from_attributes=True)
 
     user_id: int
     message: str
@@ -76,7 +82,7 @@ class ChatHistoryCreate(BaseModel):
 
 class ChatHistoryRead(BaseModel):
     """
-    Schema for retrieving chat history entries.
+    Schema for retrieving a single chat history entry.
 
     Attributes:
         id: Database primary key.
@@ -95,3 +101,41 @@ class ChatHistoryRead(BaseModel):
     ai_response: Optional[str] = None
     intent: Optional[str] = None
     created_at: Optional[datetime] = None
+
+
+class ChatHistoryItem(BaseModel):
+    """
+    Single message within a chat session, normalized for frontend display.
+
+    Attributes:
+        role: Sender identifier ('human' or 'ai').
+        content: Message text.
+        timestamp: When the message was recorded.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    role: Literal["human", "ai"] = Field(
+        ...,
+        description="Message sender role.",
+    )
+    content: str = Field(..., description="Message text.")
+    timestamp: datetime = Field(..., description="Message timestamp.")
+
+
+class ChatSessionResponse(BaseModel):
+    """
+    Complete chat session payload for the authenticated user.
+
+    Attributes:
+        user_id: The user's database ID.
+        messages: Chronologically ordered list of chat messages.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    user_id: int = Field(..., description="User ID.")
+    messages: List[ChatHistoryItem] = Field(
+        default_factory=list,
+        description="Chat messages in chronological order.",
+    )
