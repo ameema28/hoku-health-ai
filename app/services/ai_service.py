@@ -26,8 +26,8 @@ async def process_chat(message: str, user_id: int, db: Session) -> Dict[str, Any
     Process a user chat message end-to-end.
 
     Steps:
-    1. Generate AI response via HokuChatbot (mock for Day 1).
-    2. Classify intent (stubbed for setup day).
+    1. Generate AI response via HokuChatbot (Groq LLM via LangChain).
+    2. Classify intent (stubbed for Day 2 — will use fast model in production).
     3. Persist conversation via the CRUD layer.
     4. Ensure safety disclaimer is present in the reply.
 
@@ -40,19 +40,27 @@ async def process_chat(message: str, user_id: int, db: Session) -> Dict[str, Any
         Dict[str, Any]: Response payload matching ChatMessageResponse.
     """
     try:
-        # Generate AI response (mock until Day 2 Groq integration)
+        # ------------------------------------------------------------------
+        # Day 2: Real AI response via Groq + LangChain
+        # ------------------------------------------------------------------
+        # HokuChatbot.get_response is async and handles its own timeout,
+        # fallback, and error handling. It returns a dict with all fields.
         response = await _chatbot.get_response(message, user_id)
 
-        # Ensure safety disclaimer is present
+        # Ensure safety disclaimer is present (double-guard)
         reply: str = response.get("reply", "")
         if SAFETY_DISCLAIMER not in reply:
             reply = f"{reply} {SAFETY_DISCLAIMER}"
             response["reply"] = reply
 
-        # Classify intent (stubbed — will use fast model in production)
+        # ------------------------------------------------------------------
+        # Intent classification (stubbed — fast model integration on Day 3)
+        # ------------------------------------------------------------------
         intent = "general_health"
 
+        # ------------------------------------------------------------------
         # Persist via CRUD layer for atomic transaction handling
+        # ------------------------------------------------------------------
         create_chat_history(
             db=db,
             user_id=user_id,

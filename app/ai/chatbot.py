@@ -1,15 +1,31 @@
 """
-Hoku Health Care - AI Chatbot Engine.
+Hoku Health Care - AI Chatbot Engine (Day 2: Groq + LangChain).
 
-Core chatbot logic using Groq LLMs via LangChain. Implements a two-model
-strategy for cost-efficient intent recognition and high-quality response
-generation. All outputs include a mandatory clinical safety disclaimer.
+Core chatbot logic using Groq LLMs via LangChain.
 """
 
+import asyncio
+import json
 import logging
+import re
+import time
 from typing import Any, Dict, Optional
 
-from app.core.config import settings
+# LangChain imports at module level (required for test patching)
+try:
+    from langchain.chains import LLMChain
+    from langchain_groq import ChatGroq
+    LANGCHAIN_AVAILABLE = True
+except ImportError as _import_exc:
+    LANGCHAIN_AVAILABLE = False
+    ChatGroq = None  # type: ignore
+    LLMChain = None  # type: ignore
+    logging.getLogger(__name__).warning(
+        "LangChain/Groq not installed: %s", _import_exc
+    )
+
+from app.ai.config import ai_settings
+from app.ai.prompts import chat_prompt_template
 from app.utils.constants import SAFETY_DISCLAIMER
 
 logger = logging.getLogger(__name__)
@@ -19,39 +35,38 @@ class HokuChatbot:
     """
     Hoku Health Care AI Chatbot.
 
-    Uses a dual-model strategy with Groq:
-    - Fast model (llama3-8b-8192): Intent classification and entity extraction.
-    - Main model (llama3-70b-8192 or mixtral): Final patient-facing response.
-
-    This balances latency (NFR-02: <4s) with response quality.
+    Uses Groq via LangChain LLMChain:
+    - Fast model (llama-3.1-8b-instant): Intent classification.
+    - Main model (llama-3.3-70b-versatile): Patient-facing response.
     """
 
     def __init__(self) -> None:
-        """
-        Initialize the chatbot with Groq LLM clients.
+        """Initialize with lazy-loaded Groq clients."""
+        self.groq_api_key = ai_settings.groq_api_key
+        self.fast_model = ai_settings.GROQ_FAST_MODEL
+        self.main_model = ai_settings.GROQ_MAIN_MODEL
+        self.temperature = ai_settings.TEMPERATURE
+        self.max_tokens = ai_settings.MAX_TOKENS
+        self.timeout = ai_settings.GROQ_TIMEOUT_SECONDS
+        self.max_retries = ai_settings.MAX_RETRIES
 
-        Loads API key from settings and configures both fast and main
-        language models. Falls back to mock responses if Groq is unavailable.
-        """
-        self.groq_api_key = settings.GROQ_API_KEY
-        self.fast_model = settings.GROQ_FAST_MODEL
-        self.main_model = settings.GROQ_MAIN_MODEL
-
-        # Lazy-load LangChain clients on first use to reduce startup time
         self._fast_llm: Optional[Any] = None
         self._main_llm: Optional[Any] = None
+        self._chain: Optional[Any] = None
 
     @property
     def fast_llm(self) -> Any:
-        """Lazy initializer for the fast classification model."""
+        """Lazy initializer for fast classification model."""
         if self._fast_llm is None:
+            if not LANGCHAIN_AVAILABLE or ChatGroq is None:
+                return None
             try:
-                from langchain_groq import ChatGroq
                 self._fast_llm = ChatGroq(
                     model=self.fast_model,
                     api_key=self.groq_api_key,
                     temperature=0.0,
                     max_tokens=256,
+                    request_timeout=self.timeout,
                 )
                 logger.info("Fast LLM (%s) initialized", self.fast_model)
             except Exception as exc:
@@ -61,15 +76,21 @@ class HokuChatbot:
 
     @property
     def main_llm(self) -> Any:
-        """Lazy initializer for the main response generation model."""
+        """Lazy initializer for main response model."""
         if self._main_llm is None:
+            if not LANGCHAIN_AVAILABLE or ChatGroq is None:
+                logger.error("Main LLM unavailable: LangChain/Groq not installed")
+                return None
+            if not self.groq_api_key:
+                logger.error("Main LLM unavailable: GROQ_API_KEY is empty")
+                return None
             try:
-                from langchain_groq import ChatGroq
                 self._main_llm = ChatGroq(
                     model=self.main_model,
                     api_key=self.groq_api_key,
-                    temperature=0.7,
-                    max_tokens=1024,
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens,
+                    request_timeout=self.timeout,
                 )
                 logger.info("Main LLM (%s) initialized", self.main_model)
             except Exception as exc:
@@ -77,39 +98,133 @@ class HokuChatbot:
                 self._main_llm = None
         return self._main_llm
 
+    def build_chain(self) -> Any:
+        """Build LLMChain with system prompt and main model."""
+        if self._chain is None:
+            if LLMChain is None:
+                raise RuntimeError("LLMChain not available")
+            self._chain = LLMChain(
+                llm=self.main_llm,
+                prompt=chat_prompt_template,
+                verbose=False,
+            )
+            logger.info("LLMChain built with model=%s", self.main_model)
+        return self._chain
+
     async def get_response(self, message: str, user_id: int) -> Dict[str, Any]:
         """
-        Generate a chatbot response for the given user message.
-
-        Workflow:
-        1. (Future) Classify intent using fast model.
-        2. (Future) Retrieve relevant health FAQs via RAG (pgvector).
-        3. Generate safe, empathetic response using main model.
-        4. Append mandatory safety disclaimer.
-
-        Args:
-            message: Sanitized user message.
-            user_id: Authenticated user ID for context.
+        Generate chatbot response with timeout and fallback.
 
         Returns:
-            Dict[str, Any]: Response dict matching ChatMessageResponse schema.
+            Dict with reply, suggestedSpecialist, severity, shouldSeeDoctor.
         """
-        # Stub implementation for setup day
-        # TODO: Replace with actual LLM invocation after RAG pipeline is ready
-
+        start_time = time.perf_counter()
         logger.info("Processing chat for user_id=%s", user_id)
 
-        # Mock response for infrastructure validation
-        reply = (
-            "I understand your concern. I'm here to help with general health "
-            "information and guidance. Could you tell me more about your symptoms "
-            "so I can suggest the right specialist? "
-            f"{SAFETY_DISCLAIMER}"
-        )
+        if self.main_llm is None:
+            logger.error("Main LLM unavailable — returning fallback")
+            return self._fallback_response("LLM initialization failed")
 
+        try:
+            chain = self.build_chain()
+            context = "No additional context available."
+
+            llm_task = asyncio.to_thread(
+                chain.invoke,
+                {"message": message, "context": context}
+            )
+            result = await asyncio.wait_for(llm_task, timeout=self.timeout)
+
+            elapsed = time.perf_counter() - start_time
+            logger.info("Groq response in %.3fs for user_id=%s", elapsed, user_id)
+
+            raw_text = self._extract_text_from_result(result)
+            parsed = self._parse_llm_output(raw_text)
+
+            reply = parsed.get("reply", "")
+            if SAFETY_DISCLAIMER not in reply:
+                reply = f"{reply} {SAFETY_DISCLAIMER}"
+                parsed["reply"] = reply
+
+            return {
+                "reply": parsed.get("reply", self._fallback_response()["reply"]),
+                "suggestedSpecialist": parsed.get("suggestedSpecialist"),
+                "severity": parsed.get("severity", "unknown"),
+                "shouldSeeDoctor": parsed.get("shouldSeeDoctor", True),
+            }
+
+        except asyncio.TimeoutError:
+            elapsed = time.perf_counter() - start_time
+            logger.warning("Groq timeout after %.3fs for user_id=%s", elapsed, user_id)
+            return self._fallback_response("timeout")
+
+        except Exception as exc:
+            elapsed = time.perf_counter() - start_time
+            logger.exception("Groq error after %.3fs for user_id=%s: %s", elapsed, user_id, exc)
+            return self._fallback_response(str(exc))
+
+    @staticmethod
+    def _extract_text_from_result(result: Any) -> str:
+        """Extract text from LangChain return formats."""
+        if isinstance(result, str):
+            return result
+        if isinstance(result, dict):
+            for key in ("text", "output", "content", "response"):
+                if key in result and isinstance(result[key], str):
+                    return result[key]
+            return json.dumps(result)
+        return str(result)
+
+    def _parse_llm_output(self, text: str) -> Dict[str, Any]:
+        """Parse JSON with multiple fallback strategies."""
+        try:
+            data = json.loads(text.strip())
+            if isinstance(data, dict) and "reply" in data:
+                return data
+        except json.JSONDecodeError:
+            pass
+
+        try:
+            match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
+            if match:
+                data = json.loads(match.group(1))
+                if isinstance(data, dict) and "reply" in data:
+                    return data
+        except (json.JSONDecodeError, AttributeError):
+            pass
+
+        parsed: Dict[str, Any] = {
+            "reply": text.strip(),
+            "suggestedSpecialist": None,
+            "severity": "unknown",
+            "shouldSeeDoctor": True,
+        }
+
+        spec_match = re.search(r'"suggestedSpecialist"\s*:\s*"([^"]+)"', text)
+        if spec_match:
+            val = spec_match.group(1).strip()
+            if val.lower() != "null":
+                parsed["suggestedSpecialist"] = val
+
+        sev_match = re.search(r'"severity"\s*:\s*"([^"]+)"', text)
+        if sev_match:
+            parsed["severity"] = sev_match.group(1)
+
+        doc_match = re.search(r'"shouldSeeDoctor"\s*:\s*(true|false)', text)
+        if doc_match:
+            parsed["shouldSeeDoctor"] = doc_match.group(1).lower() == "true"
+
+        return parsed
+
+    def _fallback_response(self, reason: str = "unknown") -> Dict[str, Any]:
+        """Safe fallback when LLM fails."""
+        logger.info("Fallback response (reason=%s)", reason)
         return {
-            "reply": reply,
-            "suggestedSpecialist": "General Physician",
-            "severity": "mild",
-            "shouldSeeDoctor": False,
+            "reply": (
+                "I'm sorry, I couldn't process your request right now. "
+                f"{SAFETY_DISCLAIMER}"
+            ),
+            "suggestedSpecialist": None,
+            "severity": "unknown",
+            "shouldSeeDoctor": True,
         }

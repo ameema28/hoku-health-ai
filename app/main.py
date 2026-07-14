@@ -1,60 +1,44 @@
 """
-Hoku Health Care - FastAPI Application Factory.
+Hoku Health Care - FastAPI Application Entry Point.
 
-Entry point for the Hoku Health Care backend. Assembles routers,
-middleware, and event handlers into a single ASGI application.
+Registers routers, middleware, and event handlers.
 """
 
-import logging
-
 from fastapi import FastAPI
-from fastapi.responses import RedirectResponse
+from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.v1.endpoints.ai import router as ai_router
-from app.core.config import configure_logging, settings
-from app.middleware.cors import add_cors_middleware
-from app.middleware.error_handler import add_error_handlers
+from app.api.v1.endpoints import ai
+from app.core.config import settings
+from app.core.middleware import TimingMiddleware
 
-logger = logging.getLogger(__name__)
+app = FastAPI(
+    title="Hoku Health Care API",
+    description="AI-powered healthcare assistance platform",
+    version="1.0.0",
+)
 
+# ------------------------------------------------------------------
+# Middleware (order matters: Timing first to catch all requests)
+# ------------------------------------------------------------------
+app.add_middleware(TimingMiddleware)
 
-def create_application() -> FastAPI:
-    """
-    Factory function to create and configure the FastAPI app.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"] if not settings.is_production else ["https://hokuhealth.com"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-    Returns:
-        FastAPI: Configured application instance.
-    """
-    configure_logging()
+# ------------------------------------------------------------------
+# Routers
+# ------------------------------------------------------------------
+# TEMPORARY: Bypass auth for Day 2 local testing only
 
-    app = FastAPI(
-        title="Hoku Health Care",
-        description="AI-powered home healthcare platform backend.",
-        version="0.1.0",
-        docs_url="/docs",
-        redoc_url="/redoc",
-    )
-
-    # Register middleware
-    add_cors_middleware(app)
-    add_error_handlers(app)
-
-    # Register API routers
-    app.include_router(ai_router)
-
-    # Root redirect to API documentation
-    @app.get("/", include_in_schema=False)
-    async def root() -> RedirectResponse:
-        """Redirect root to Swagger UI."""
-        return RedirectResponse(url="/docs")
-
-    # Startup event
-    @app.on_event("startup")
-    async def startup_event() -> None:
-        """Log service startup for observability."""
-        logger.info("Hoku AI service starting | environment=%s", settings.ENVIRONMENT)
-
-    return app
+app.include_router(ai.router)
 
 
-app = create_application()
+@app.get("/")
+async def root():
+    """Root health check."""
+    return {"message": "Hoku Health Care API is running"}

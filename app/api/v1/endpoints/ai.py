@@ -7,6 +7,7 @@ via the CRUD layer.
 """
 
 import logging
+import time
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -51,7 +52,7 @@ async def chat(
     Steps:
     1. Validate user identity and existence.
     2. Sanitize and validate the incoming message.
-    3. Generate a mock AI response (real Groq integration on Day 2).
+    3. Generate AI response via Groq LLM (async, with 3.5s timeout).
     4. Persist the conversation turn via the CRUD layer.
     5. Return the response with clinical metadata.
 
@@ -67,6 +68,8 @@ async def chat(
         UserNotFoundException: If the user does not exist.
         HTTPException: If validation fails or an unexpected error occurs.
     """
+    request_start = time.perf_counter()
+
     try:
         # Verify the requesting user matches the authenticated token
         if request.userId != current_user["id"]:
@@ -91,12 +94,31 @@ async def chat(
                 detail="Message cannot be empty or exceeds maximum length.",
             )
 
-        # Process chat through the AI service layer (mock response for Day 1)
+        # ------------------------------------------------------------------
+        # Day 2: Real AI response via Groq + LangChain
+        # ------------------------------------------------------------------
+        # process_chat now delegates to HokuChatbot which calls Groq.
+        # The service layer handles timing, timeout, fallback, and DB persistence.
         result = await process_chat(
             message=clean_message,
             user_id=request.userId,
             db=db,
         )
+
+        total_elapsed = time.perf_counter() - request_start
+        logger.info(
+            "POST /api/ai/chat completed for user_id=%s in %.3fs",
+            request.userId,
+            total_elapsed,
+        )
+
+        # Alert if we breached the 4s NFR (should never happen due to 3.5s hard timeout)
+        if total_elapsed > 4.0:
+            logger.warning(
+                "NFR-02 BREACH: Request for user_id=%s took %.3fs (limit: 4s)",
+                request.userId,
+                total_elapsed,
+            )
 
         return ChatMessageResponse(**result)
 
