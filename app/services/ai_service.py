@@ -1,5 +1,5 @@
 """
-Hoku Health Care - AI Service Layer.
+Hoku Health Care - AI Service Layer (Day 3).
 
 Orchestrates chatbot interactions, delegates persistence to the CRUD layer,
 and handles business logic between API endpoints and AI engines.
@@ -11,7 +11,7 @@ from typing import Any, Dict
 from sqlalchemy.orm import Session
 
 from app.ai.chatbot import HokuChatbot
-from app.crud.chat import create_chat_history
+from app.ai.memory import HokuConversationMemory
 from app.core.exceptions import DatabaseOperationException
 from app.utils.constants import SAFETY_DISCLAIMER
 
@@ -21,13 +21,45 @@ logger = logging.getLogger(__name__)
 _chatbot: HokuChatbot = HokuChatbot()
 
 
+async def classify_intent(message: str) -> str:
+    """
+    Classify the intent of a user message.
+
+    Placeholder for Day 4: Will use fast_llm (llama-3.1-8b-instant) for
+    low-latency intent classification before generating the main response.
+
+    Args:
+        message: Sanitized user message.
+
+    Returns:
+        str: Intent label (e.g., "symptom", "booking", "general_health").
+    """
+    # TODO Day 4: Use fast_llm for intent classification
+    return "general_health"
+
+
+async def generate_response(message: str, user_id: int, db: Session) -> Dict[str, Any]:
+    """
+    Generate AI response via HokuChatbot with conversation memory.
+
+    Args:
+        message: Sanitized user message.
+        user_id: Authenticated user ID.
+        db: SQLAlchemy database session.
+
+    Returns:
+        Dict[str, Any]: Response payload matching ChatMessageResponse.
+    """
+    return await _chatbot.get_response(message, user_id, db)
+
+
 async def process_chat(message: str, user_id: int, db: Session) -> Dict[str, Any]:
     """
     Process a user chat message end-to-end.
 
     Steps:
-    1. Generate AI response via HokuChatbot (Groq LLM via LangChain).
-    2. Classify intent (stubbed for Day 2 — will use fast model in production).
+    1. Classify intent (stubbed for Day 4).
+    2. Generate AI response via HokuChatbot with memory (Groq LLM via LangChain).
     3. Persist conversation via the CRUD layer.
     4. Ensure safety disclaimer is present in the reply.
 
@@ -41,11 +73,14 @@ async def process_chat(message: str, user_id: int, db: Session) -> Dict[str, Any
     """
     try:
         # ------------------------------------------------------------------
-        # Day 2: Real AI response via Groq + LangChain
+        # Day 4: Intent classification (placeholder)
         # ------------------------------------------------------------------
-        # HokuChatbot.get_response is async and handles its own timeout,
-        # fallback, and error handling. It returns a dict with all fields.
-        response = await _chatbot.get_response(message, user_id)
+        intent = await classify_intent(message)
+
+        # ------------------------------------------------------------------
+        # Day 3: Generate response with conversation memory
+        # ------------------------------------------------------------------
+        response = await generate_response(message, user_id, db)
 
         # Ensure safety disclaimer is present (double-guard)
         reply: str = response.get("reply", "")
@@ -54,19 +89,14 @@ async def process_chat(message: str, user_id: int, db: Session) -> Dict[str, Any
             response["reply"] = reply
 
         # ------------------------------------------------------------------
-        # Intent classification (stubbed — fast model integration on Day 3)
+        # Coordinate memory save after successful response
         # ------------------------------------------------------------------
-        intent = "general_health"
-
-        # ------------------------------------------------------------------
-        # Persist via CRUD layer for atomic transaction handling
-        # ------------------------------------------------------------------
-        create_chat_history(
-            db=db,
+        memory_manager = HokuConversationMemory()
+        memory_manager.save_memory(
             user_id=user_id,
-            message=message,
-            ai_response=reply,
-            intent=intent,
+            human_message=message,
+            ai_message=reply,
+            db=db,
         )
 
         return response

@@ -164,7 +164,10 @@ def get_recent_chat_history(
     limit: int = 10,
 ) -> List[ChatHistory]:
     """
-    Get the most recent chat history entries for a user.
+    Get the most recent COMPLETE chat history entries for a user.
+
+    Only returns turns where ai_response is not NULL, ensuring the
+    memory loader receives valid conversation pairs.
 
     Args:
         db: SQLAlchemy database session.
@@ -172,7 +175,7 @@ def get_recent_chat_history(
         limit: Maximum number of recent records.
 
     Returns:
-        List[ChatHistory]: Recent entries ordered by created_at descending.
+        List[ChatHistory]: Recent complete entries ordered by created_at descending.
 
     Raises:
         DatabaseOperationException: If the query fails.
@@ -181,12 +184,13 @@ def get_recent_chat_history(
         stmt = (
             select(ChatHistory)
             .where(ChatHistory.user_id == user_id)
+            .where(ChatHistory.ai_response.isnot(None))
             .order_by(ChatHistory.created_at.desc())
             .limit(limit)
         )
         result = db.execute(stmt).scalars().all()
         logger.info(
-            "Retrieved %d recent chat entries for user_id=%s",
+            "Retrieved %d recent complete chat entries for user_id=%s",
             len(result),
             user_id,
         )

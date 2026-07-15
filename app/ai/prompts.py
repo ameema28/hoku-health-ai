@@ -1,11 +1,14 @@
 """
-Hoku Health Care - Prompt Engineering Templates.
+Hoku Health Care - Prompt Engineering Templates (Day 3).
 
 All prompts designed for clinical safety: non-diagnostic, empathetic,
 consistently terminated with mandatory disclaimer.
+
+Memory injection: Uses MessagesPlaceholder for reliable conversation
+history insertion into ChatPromptTemplate (langchain 0.2.6 standard).
 """
 
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 # ------------------------------------------------------------------
 # SYSTEM PROMPT
@@ -35,15 +38,16 @@ Respond in the following JSON format:
 # risk. Temperature = 0.3 keeps outputs deterministic enough to be safe
 # while still allowing natural language variation.
 
-HUMAN_PROMPT_TEMPLATE = """Patient message: {message}
+# MessagesPlaceholder is the standard LangChain pattern for injecting
+# conversation history as message objects into ChatPromptTemplate.
+# It is more reliable than string-based {history} substitution in 0.2.6.
+chat_prompt_template = ChatPromptTemplate.from_messages([
+    ("system", SYSTEM_PROMPT),
+    MessagesPlaceholder(variable_name="history"),
+    ("human", """Patient message: {message}
 
 Context: {context}
 
 Remember: respond ONLY in the required JSON format. Do not include markdown code blocks or extra text outside the JSON object.
-"""
-
-# Modern tuple syntax for ChatPromptTemplate (works in 0.2.x)
-chat_prompt_template = ChatPromptTemplate.from_messages([
-    ("system", SYSTEM_PROMPT),
-    ("human", HUMAN_PROMPT_TEMPLATE),
+"""),
 ])

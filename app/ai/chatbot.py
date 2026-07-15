@@ -1,7 +1,8 @@
 """
-Hoku Health Care - AI Chatbot Engine (Day 2: Groq + LangChain).
+Hoku Health Care - AI Chatbot Engine (Day 3: Conversation Memory).
 
-Core chatbot logic using Groq LLMs via LangChain.
+Core chatbot logic using Groq LLMs via LangChain 0.2.6 with per-user
+conversation memory loaded from PostgreSQL/SQLite.
 """
 
 import asyncio
@@ -10,6 +11,8 @@ import logging
 import re
 import time
 from typing import Any, Dict, Optional
+
+from sqlalchemy.orm import Session
 
 # LangChain imports at module level (required for test patching)
 try:
@@ -25,6 +28,7 @@ except ImportError as _import_exc:
     )
 
 from app.ai.config import ai_settings
+from app.ai.memory import HokuConversationMemory
 from app.ai.prompts import chat_prompt_template
 from app.utils.constants import SAFETY_DISCLAIMER
 
@@ -36,7 +40,7 @@ class HokuChatbot:
     Hoku Health Care AI Chatbot.
 
     Uses Groq via LangChain LLMChain:
-    - Fast model (llama-3.1-8b-instant): Intent classification.
+    - Fast model (llama-3.1-8b-instant): Intent classification (Day 4).
     - Main model (llama-3.3-70b-versatile): Patient-facing response.
     """
 
@@ -111,9 +115,19 @@ class HokuChatbot:
             logger.info("LLMChain built with model=%s", self.main_model)
         return self._chain
 
-    async def get_response(self, message: str, user_id: int) -> Dict[str, Any]:
+    async def get_response(
+        self,
+        message: str,
+        user_id: int,
+        db: Session,
+    ) -> Dict[str, Any]:
         """
-        Generate chatbot response with timeout and fallback.
+        Generate chatbot response with timeout, fallback, and memory.
+
+        Args:
+            message: Sanitized user message.
+            user_id: Authenticated user ID.
+            db: SQLAlchemy database session for memory loading.
 
         Returns:
             Dict with reply, suggestedSpecialist, severity, shouldSeeDoctor.
@@ -126,19 +140,65 @@ class HokuChatbot:
             return self._fallback_response("LLM initialization failed")
 
         try:
-            chain = self.build_chain()
-            context = "No additional context available."
+            # ------------------------------------------------------------------
+            # Day 3: Load conversation memory from database
+            # ------------------------------------------------------------------
+            memory_start = time.perf_counter()
+            memory_manager = HokuConversationMemory(
+                message_limit=ai_settings.MEMORY_MESSAGE_LIMIT,
+                max_history_tokens=ai_settings.MEMORY_MAX_TOKENS,
+            )
+            memory = memory_manager.load_memory(user_id=user_id, db=db)
+            memory_elapsed = time.perf_counter() - memory_start
+
+            # Log memory state for debugging
+            memory_vars = memory.load_memory_variables({"message": message})
+            history_list = memory_vars.get("history", [])
+            logger.info(
+                "Memory loaded for user_id=%s in %.3fs (%d messages)",
+                user_id,
+                memory_elapsed,
+                len(history_list),
+            )
+
+            # Adjust LLM timeout so memory load + LLM stays under 3.5s total
+            remaining_timeout = max(0.1, self.timeout - memory_elapsed)
+
+            # Build chain WITH memory (Day 3 requirement: LLMChain(..., memory=memory))
+            # MessagesPlaceholder + ConversationBufferMemory(return_messages=True)
+            # handles history injection automatically. Do NOT pass 'history'
+            # explicitly in chain.invoke() — it causes key collision.
+            if LLMChain is None:
+                raise RuntimeError("LLMChain not available")
+
+            chain = LLMChain(
+                llm=self.main_llm,
+                prompt=chat_prompt_template,
+                memory=memory,
+                verbose=False,
+            )
+
+            # TODO Day 4: Use fast_llm for intent classification
+            # intent = await self._classify_intent(message)
 
             llm_task = asyncio.to_thread(
                 chain.invoke,
-                {"message": message, "context": context}
+                {"message": message, "context": "No additional context available."}
             )
-            result = await asyncio.wait_for(llm_task, timeout=self.timeout)
+            result = await asyncio.wait_for(llm_task, timeout=remaining_timeout)
 
             elapsed = time.perf_counter() - start_time
             logger.info("Groq response in %.3fs for user_id=%s", elapsed, user_id)
 
+            # Log estimated token usage for cost monitoring
             raw_text = self._extract_text_from_result(result)
+            estimated_tokens = len(raw_text) // 4
+            logger.info(
+                "Estimated response tokens for user_id=%s: ~%d",
+                user_id,
+                estimated_tokens,
+            )
+
             parsed = self._parse_llm_output(raw_text)
 
             reply = parsed.get("reply", "")
@@ -160,7 +220,9 @@ class HokuChatbot:
 
         except Exception as exc:
             elapsed = time.perf_counter() - start_time
-            logger.exception("Groq error after %.3fs for user_id=%s: %s", elapsed, user_id, exc)
+            logger.exception(
+                "Groq error after %.3fs for user_id=%s: %s", elapsed, user_id, exc
+            )
             return self._fallback_response(str(exc))
 
     @staticmethod

@@ -1,7 +1,7 @@
 """
-Hoku Health Care - Chatbot Unit Tests.
+Hoku Health Care - Chatbot Unit Tests (Day 3).
 
-Tests for HokuChatbot with LLMChain.
+Tests for HokuChatbot with LLMChain and conversation memory.
 """
 
 import json
@@ -9,6 +9,7 @@ import time
 from unittest.mock import MagicMock, patch
 
 import pytest
+from langchain.memory import ConversationBufferMemory
 
 from app.ai.chatbot import HokuChatbot
 from app.ai.utils import (
@@ -30,6 +31,8 @@ def mock_settings():
     settings.MAX_TOKENS = 512
     settings.GROQ_TIMEOUT_SECONDS = 3.5
     settings.MAX_RETRIES = 3
+    settings.MEMORY_MESSAGE_LIMIT = 10
+    settings.MEMORY_MAX_TOKENS = 307
     return settings
 
 
@@ -38,6 +41,17 @@ def chatbot(mock_settings):
     with patch("app.ai.chatbot.ai_settings", mock_settings):
         bot = HokuChatbot()
         yield bot
+
+
+@pytest.fixture
+def mock_db():
+    return MagicMock()
+
+
+@pytest.fixture
+def mock_memory():
+    memory = ConversationBufferMemory(memory_key="history", input_key="message")
+    return memory
 
 
 @pytest.fixture
@@ -73,63 +87,79 @@ class TestHokuChatbotInitialization:
 
 
 class TestGetResponse:
-    async def test_returns_correct_keys(self, chatbot, mock_llm_chain):
-        chatbot._chain = mock_llm_chain
-        result = await chatbot.get_response("I have a headache", user_id=1)
-        assert "reply" in result
-        assert "suggestedSpecialist" in result
-        assert "severity" in result
-        assert "shouldSeeDoctor" in result
+    async def test_returns_correct_keys(self, chatbot, mock_llm_chain, mock_db, mock_memory):
+        with patch("app.ai.chatbot.HokuConversationMemory") as MockMem:
+            MockMem.return_value.load_memory.return_value = mock_memory
+            with patch("app.ai.chatbot.LLMChain", return_value=mock_llm_chain):
+                result = await chatbot.get_response("I have a headache", user_id=1, db=mock_db)
+                assert "reply" in result
+                assert "suggestedSpecialist" in result
+                assert "severity" in result
+                assert "shouldSeeDoctor" in result
 
-    async def test_reply_contains_safety_disclaimer(self, chatbot, mock_llm_chain):
-        chatbot._chain = mock_llm_chain
-        result = await chatbot.get_response("I have a headache", user_id=1)
-        assert SAFETY_DISCLAIMER in result["reply"]
+    async def test_reply_contains_safety_disclaimer(self, chatbot, mock_llm_chain, mock_db, mock_memory):
+        with patch("app.ai.chatbot.HokuConversationMemory") as MockMem:
+            MockMem.return_value.load_memory.return_value = mock_memory
+            with patch("app.ai.chatbot.LLMChain", return_value=mock_llm_chain):
+                result = await chatbot.get_response("I have a headache", user_id=1, db=mock_db)
+                assert SAFETY_DISCLAIMER in result["reply"]
 
-    async def test_parses_specialist_correctly(self, chatbot, mock_llm_chain):
-        chatbot._chain = mock_llm_chain
-        result = await chatbot.get_response("I have a headache", user_id=1)
-        assert result["suggestedSpecialist"] == "General Physician"
+    async def test_parses_specialist_correctly(self, chatbot, mock_llm_chain, mock_db, mock_memory):
+        with patch("app.ai.chatbot.HokuConversationMemory") as MockMem:
+            MockMem.return_value.load_memory.return_value = mock_memory
+            with patch("app.ai.chatbot.LLMChain", return_value=mock_llm_chain):
+                result = await chatbot.get_response("I have a headache", user_id=1, db=mock_db)
+                assert result["suggestedSpecialist"] == "General Physician"
 
-    async def test_parses_severity_correctly(self, chatbot, mock_llm_chain):
-        chatbot._chain = mock_llm_chain
-        result = await chatbot.get_response("I have a headache", user_id=1)
-        assert result["severity"] == "mild"
+    async def test_parses_severity_correctly(self, chatbot, mock_llm_chain, mock_db, mock_memory):
+        with patch("app.ai.chatbot.HokuConversationMemory") as MockMem:
+            MockMem.return_value.load_memory.return_value = mock_memory
+            with patch("app.ai.chatbot.LLMChain", return_value=mock_llm_chain):
+                result = await chatbot.get_response("I have a headache", user_id=1, db=mock_db)
+                assert result["severity"] == "mild"
 
-    async def test_parses_should_see_doctor_correctly(self, chatbot, mock_llm_chain):
-        chatbot._chain = mock_llm_chain
-        result = await chatbot.get_response("I have a headache", user_id=1)
-        assert result["shouldSeeDoctor"] is False
+    async def test_parses_should_see_doctor_correctly(self, chatbot, mock_llm_chain, mock_db, mock_memory):
+        with patch("app.ai.chatbot.HokuConversationMemory") as MockMem:
+            MockMem.return_value.load_memory.return_value = mock_memory
+            with patch("app.ai.chatbot.LLMChain", return_value=mock_llm_chain):
+                result = await chatbot.get_response("I have a headache", user_id=1, db=mock_db)
+                assert result["shouldSeeDoctor"] is False
 
-    async def test_fallback_on_timeout(self, chatbot):
+    async def test_fallback_on_timeout(self, chatbot, mock_db, mock_memory):
         slow_chain = MagicMock()
         slow_chain.invoke = lambda **kwargs: time.sleep(10) or {}
-        chatbot._chain = slow_chain
-        chatbot.timeout = 0.01
-        result = await chatbot.get_response("I have a headache", user_id=1)
-        assert "sorry" in result["reply"].lower()
-        assert SAFETY_DISCLAIMER in result["reply"]
-        assert result["shouldSeeDoctor"] is True
+        with patch("app.ai.chatbot.HokuConversationMemory") as MockMem:
+            MockMem.return_value.load_memory.return_value = mock_memory
+            with patch("app.ai.chatbot.LLMChain", return_value=slow_chain):
+                chatbot.timeout = 0.01
+                result = await chatbot.get_response("I have a headache", user_id=1, db=mock_db)
+                assert "sorry" in result["reply"].lower()
+                assert SAFETY_DISCLAIMER in result["reply"]
+                assert result["shouldSeeDoctor"] is True
 
-    async def test_fallback_on_llm_error(self, chatbot):
+    async def test_fallback_on_llm_error(self, chatbot, mock_db, mock_memory):
         bad_chain = MagicMock()
         bad_chain.invoke.side_effect = Exception("Groq API error")
-        chatbot._chain = bad_chain
-        result = await chatbot.get_response("I have a headache", user_id=1)
-        assert "sorry" in result["reply"].lower()
-        assert SAFETY_DISCLAIMER in result["reply"]
-        assert result["shouldSeeDoctor"] is True
+        with patch("app.ai.chatbot.HokuConversationMemory") as MockMem:
+            MockMem.return_value.load_memory.return_value = mock_memory
+            with patch("app.ai.chatbot.LLMChain", return_value=bad_chain):
+                result = await chatbot.get_response("I have a headache", user_id=1, db=mock_db)
+                assert "sorry" in result["reply"].lower()
+                assert SAFETY_DISCLAIMER in result["reply"]
+                assert result["shouldSeeDoctor"] is True
 
-    async def test_response_time_under_nfr(self, chatbot, mock_llm_chain):
-        chatbot._chain = mock_llm_chain
-        start = time.perf_counter()
-        result = await chatbot.get_response("I have a headache", user_id=1)
-        elapsed = time.perf_counter() - start
-        assert elapsed < 4.0
+    async def test_response_time_under_nfr(self, chatbot, mock_llm_chain, mock_db, mock_memory):
+        with patch("app.ai.chatbot.HokuConversationMemory") as MockMem:
+            MockMem.return_value.load_memory.return_value = mock_memory
+            with patch("app.ai.chatbot.LLMChain", return_value=mock_llm_chain):
+                start = time.perf_counter()
+                result = await chatbot.get_response("I have a headache", user_id=1, db=mock_db)
+                elapsed = time.perf_counter() - start
+                assert elapsed < 4.0
 
-    async def test_fallback_when_llm_none(self, chatbot):
+    async def test_fallback_when_llm_none(self, chatbot, mock_db):
         chatbot._main_llm = None
-        result = await chatbot.get_response("test", user_id=1)
+        result = await chatbot.get_response("test", user_id=1, db=mock_db)
         assert "sorry" in result["reply"].lower()
         assert result["shouldSeeDoctor"] is True
 

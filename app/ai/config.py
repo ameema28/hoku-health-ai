@@ -1,5 +1,5 @@
 """
-Hoku Health Care - AI Configuration Module.
+Hoku Health Care - AI Configuration Module (Day 3).
 
 Centralizes all AI/LLM hyperparameters, timeouts, and retry policies.
 All values are tuned for clinical safety and the <4s response NFR.
@@ -69,6 +69,23 @@ class AISettings(BaseSettings):
     # (specialist, severity) without fragile regex on free text.
     RESPONSE_FORMAT: str = "json"
 
+    # ------------------------------------------------------------------
+    # Conversation Memory (Day 3)
+    # ------------------------------------------------------------------
+    # Limit to 10 messages to balance context richness with token budget
+    # and keep memory load time under the 3.5s total latency budget.
+    # 10 turns ≈ 20 messages (human + ai) ≈ 200-300 tokens typical.
+    MEMORY_MESSAGE_LIMIT: int = 10
+
+    # Max tokens allocated for conversation history.
+    # Leaves 60% of the 512-token context window for the current response
+    # generation = ~307 tokens for history.
+    MEMORY_MAX_TOKENS: int = 307
+
+    # Enable tiktoken for accurate token counting.
+    # Set to false on Windows if tiktoken fails to install (Rust extension).
+    TIKTOKEN_ENABLED: bool = True
+
     @property
     def groq_api_key(self) -> str:
         """Delegate to core settings to keep secrets in one place."""
@@ -84,11 +101,14 @@ def get_ai_settings() -> AISettings:
     """Factory for AI settings with validation logging."""
     ai_settings = AISettings()
     logger.info(
-        "AI settings loaded: model=%s, temp=%.1f, max_tokens=%d, timeout=%.1fs",
+        "AI settings loaded: model=%s, temp=%.1f, max_tokens=%d, timeout=%.1fs, "
+        "memory_limit=%d, memory_tokens=%d",
         ai_settings.GROQ_MAIN_MODEL,
         ai_settings.TEMPERATURE,
         ai_settings.MAX_TOKENS,
         ai_settings.GROQ_TIMEOUT_SECONDS,
+        ai_settings.MEMORY_MESSAGE_LIMIT,
+        ai_settings.MEMORY_MAX_TOKENS,
     )
     return ai_settings
 

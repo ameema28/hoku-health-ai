@@ -1,5 +1,5 @@
 """
-Hoku Health Care - AI Chatbot API Endpoints.
+Hoku Health Care - AI Chatbot API Endpoints (Day 3).
 
 FastAPI router exposing the AI chatbot and chat history services.
 All endpoints require authentication and persist conversation history
@@ -52,7 +52,7 @@ async def chat(
     Steps:
     1. Validate user identity and existence.
     2. Sanitize and validate the incoming message.
-    3. Generate AI response via Groq LLM (async, with 3.5s timeout).
+    3. Generate AI response via Groq LLM with conversation memory (async, 3.5s timeout).
     4. Persist the conversation turn via the CRUD layer.
     5. Return the response with clinical metadata.
 
@@ -95,10 +95,10 @@ async def chat(
             )
 
         # ------------------------------------------------------------------
-        # Day 2: Real AI response via Groq + LangChain
+        # Day 3: Real AI response via Groq + LangChain with conversation memory
         # ------------------------------------------------------------------
-        # process_chat now delegates to HokuChatbot which calls Groq.
-        # The service layer handles timing, timeout, fallback, and DB persistence.
+        # process_chat now delegates to HokuChatbot which loads per-user
+        # memory from the database before calling Groq.
         result = await process_chat(
             message=clean_message,
             user_id=request.userId,
