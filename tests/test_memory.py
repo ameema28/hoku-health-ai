@@ -1,23 +1,28 @@
 """
-Hoku Health Care - Conversation Memory Unit Tests (Day 3).
+Hoku Health Care - Conversation Memory Unit Tests (Day 4).
 
 Tests for HokuConversationMemory and token budget management.
 All DB interactions are mocked; no real Groq API calls.
+
+Day 4 update:
+- Updated test_memory_save_coordination to expect "general" default intent
+- Added test_memory_save_with_intent to verify intent parameter passing
 """
 
 from unittest.mock import MagicMock, patch
 
 import pytest
+
 from langchain.memory import ConversationBufferMemory
 from langchain_core.messages import AIMessage, HumanMessage
 
 from app.ai.memory import HokuConversationMemory
 from app.ai.token_budget import calculate_history_tokens, trim_history_to_budget
 
-
-# ------------------------------------------------------------------
+# ----------------------------------------------------------------------
 # Module-level fixtures (shared across ALL test classes in this file)
-# ------------------------------------------------------------------
+# ----------------------------------------------------------------------
+
 @pytest.fixture
 def memory_manager():
     return HokuConversationMemory(message_limit=10, max_history_tokens=307)
@@ -49,7 +54,6 @@ class TestHokuConversationMemory:
             return_value=mock_entries,
         ):
             memory = memory_manager.load_memory(user_id=1, db=mock_db)
-
             assert isinstance(memory, ConversationBufferMemory)
             # 10 turns = 20 messages (10 human + 10 ai) in the chat memory
             assert len(memory.chat_memory.messages) == 20
@@ -61,7 +65,6 @@ class TestHokuConversationMemory:
             return_value=[],
         ):
             memory = memory_manager.load_memory(user_id=999, db=mock_db)
-
             assert isinstance(memory, ConversationBufferMemory)
             assert memory.chat_memory.messages == []
 
@@ -119,7 +122,6 @@ class TestHokuConversationMemory:
             memory = memory_manager.load_memory(user_id=1, db=mock_db)
             vars_dict = memory.load_memory_variables({"message": "test"})
             history = vars_dict.get("history", [])
-
             # MessagesPlaceholder expects a list of BaseMessage objects
             assert isinstance(history, list)
             assert len(history) == 2
@@ -161,10 +163,8 @@ class TestTokenBudget:
             HumanMessage(content="New important question"),
             AIMessage(content="New important answer"),
         ]
-
         # Set a very low budget to force trimming
         result = trim_history_to_budget(messages, max_tokens=10)
-
         # Oldest pair should be removed
         assert len(result) <= 4
         # The newest messages should be preserved
@@ -193,4 +193,37 @@ class TestMemoryIntegration:
             assert call_kwargs["user_id"] == 1
             assert call_kwargs["message"] == "Test message"
             assert call_kwargs["ai_response"] == "Test response"
-            assert call_kwargs["intent"] == "general_health"
+            # Day 4: Default intent is now "general" instead of "general_health"
+            assert call_kwargs["intent"] == "general"
+
+    # Day 4: New test for intent parameter
+    def test_memory_save_with_intent(self, mock_db):
+        """Test that save_memory passes intent correctly (Day 4)."""
+        manager = HokuConversationMemory()
+        with patch("app.ai.memory.create_chat_history") as mock_create:
+            manager.save_memory(
+                user_id=1,
+                human_message="Test message",
+                ai_message="Test response",
+                db=mock_db,
+                intent="symptom",  # Day 4: Pass explicit intent
+            )
+            mock_create.assert_called_once()
+            call_kwargs = mock_create.call_args.kwargs
+            assert call_kwargs["intent"] == "symptom"
+
+    # Day 4: New test for default intent fallback
+    def test_memory_save_default_intent(self, mock_db):
+        """Test that save_memory defaults to 'general' when intent is None."""
+        manager = HokuConversationMemory()
+        with patch("app.ai.memory.create_chat_history") as mock_create:
+            manager.save_memory(
+                user_id=1,
+                human_message="Test message",
+                ai_message="Test response",
+                db=mock_db,
+                intent=None,  # Explicitly pass None
+            )
+            mock_create.assert_called_once()
+            call_kwargs = mock_create.call_args.kwargs
+            assert call_kwargs["intent"] == "general"

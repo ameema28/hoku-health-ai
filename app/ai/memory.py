@@ -1,14 +1,17 @@
 """
-Hoku Health Care - Conversation Memory Management (Day 3).
+Hoku Health Care - Conversation Memory Management (Day 4).
 
 Per-user conversation memory using LangChain 0.2.6 ConversationBufferMemory.
 Loads recent chat history from PostgreSQL/SQLite and converts to LangChain
 message format for context-aware multi-turn conversations.
+
+Day 4 update:
+- save_memory now accepts intent parameter for analytics
 """
 
 import logging
 import time
-from typing import List
+from typing import List, Optional
 
 from langchain.memory import ConversationBufferMemory
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
@@ -146,6 +149,7 @@ class HokuConversationMemory:
         human_message: str,
         ai_message: str,
         db: Session,
+        intent: Optional[str] = None,  # Day 4: Accept intent for analytics
     ) -> None:
         """
         Persist a conversation turn to the database.
@@ -158,20 +162,26 @@ class HokuConversationMemory:
             human_message: The user's message.
             ai_message: The AI's response.
             db: SQLAlchemy database session.
+            intent: Classified intent string (Day 4). Defaults to "general"
+                if not provided.
         """
+        # Day 4: Use provided intent or default to "general"
+        intent_to_save = intent if intent is not None else "general"
+
         create_chat_history(
             db=db,
             user_id=user_id,
             message=human_message,
             ai_response=ai_message,
-            intent="general_health",  # TODO Day 4: Use classified intent
+            intent=intent_to_save,
         )
 
         logger.debug(
-            "Memory saved for user_id=%s: message_len=%d, response_len=%d",
+            "Memory saved for user_id=%s: message_len=%d, response_len=%d, intent=%s",
             user_id,
             len(human_message),
             len(ai_message),
+            intent_to_save,
         )
 
     @staticmethod

@@ -40,3 +40,43 @@ def client(db):
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
+
+
+# Day 4: Intent-specific fixtures
+@pytest.fixture
+def mock_intent_classifier():
+    """Mock IntentClassifier that returns predictable intents."""
+    from unittest.mock import MagicMock
+    from app.ai.intent_classifier import IntentEnum
+    
+    classifier = MagicMock()
+    
+    async def mock_classify(message):
+        msg_lower = message.lower()
+        if "headache" in msg_lower or "fever" in msg_lower:
+            return (IntentEnum.SYMPTOM, 0.95)
+        elif "book" in msg_lower or "appointment" in msg_lower:
+            return (IntentEnum.BOOKING, 0.92)
+        elif "medicine" in msg_lower or "paracetamol" in msg_lower:
+            return (IntentEnum.MEDICATION, 0.93)
+        elif "emergency" in msg_lower or "chest pain" in msg_lower or "breathe" in msg_lower:
+            return (IntentEnum.EMERGENCY, 0.99)
+        else:
+            return (IntentEnum.GENERAL, 0.88)
+    
+    classifier.classify_intent = mock_classify
+    return classifier
+
+
+@pytest.fixture
+def mock_emergency_detector():
+    """Mock emergency detector for controlled testing."""
+    from unittest.mock import patch
+    
+    def mock_detect(message):
+        if message and "emergency" in message.lower():
+            return True
+        return False
+    
+    with patch("app.ai.chatbot.detect_emergency", side_effect=mock_detect):
+        yield

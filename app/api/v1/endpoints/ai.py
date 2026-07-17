@@ -1,16 +1,22 @@
 """
-Hoku Health Care - AI Chatbot API Endpoints (Day 3).
+Hoku Health Care - AI Chatbot API Endpoints (Day 4).
 
 FastAPI router exposing the AI chatbot and chat history services.
 All endpoints require authentication and persist conversation history
 via the CRUD layer.
+
+Day 4 updates:
+- Response now includes intent and confidence fields
+- If emergency detected, adds HTTP header: X-Hoku-Emergency: true
+- Timing middleware includes intent classification time in total latency
+- Passes raw message for emergency detection to avoid HTML-escaping issues
 """
 
 import logging
 import time
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_user, get_db
@@ -43,6 +49,7 @@ router = APIRouter(prefix="/api/ai", tags=["AI Chatbot"])
 )
 async def chat(
     request: ChatMessageRequest,
+    response: Response,  # Day 4: For adding emergency header
     db: Session = Depends(get_db),
     current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> ChatMessageResponse:
@@ -52,24 +59,26 @@ async def chat(
     Steps:
     1. Validate user identity and existence.
     2. Sanitize and validate the incoming message.
-    3. Generate AI response via Groq LLM with conversation memory (async, 3.5s timeout).
-    4. Persist the conversation turn via the CRUD layer.
-    5. Return the response with clinical metadata.
+    3. Generate AI response via Groq LLM with conversation memory
+       and intent classification (async, 3.5s timeout).
+    4. Persist the conversation turn via the CRUD layer with intent.
+    5. Return the response with clinical metadata and intent fields.
+    6. Add X-Hoku-Emergency header if emergency was detected.
 
     Args:
         request: Validated chat message payload.
+        response: FastAPI Response object for header injection.
         db: SQLAlchemy database session.
         current_user: Authenticated user dictionary from JWT.
 
     Returns:
-        ChatMessageResponse: AI reply with clinical metadata.
+        ChatMessageResponse: AI reply with clinical metadata and intent.
 
     Raises:
         UserNotFoundException: If the user does not exist.
         HTTPException: If validation fails or an unexpected error occurs.
     """
     request_start = time.perf_counter()
-
     try:
         # Verify the requesting user matches the authenticated token
         if request.userId != current_user["id"]:
@@ -81,8 +90,16 @@ async def chat(
         if not user_exists(db, request.userId):
             raise UserNotFoundException()
 
-        # Sanitize and validate input
-        clean_message = sanitize_message(request.message)
+        # ------------------------------------------------------------------
+        # Day 4: Store raw message BEFORE sanitization for emergency detection
+        # sanitize_message() calls html.escape() which converts:
+        #   ' -> &#x27;  (apostrophe)
+        # This breaks emergency regex keywords like "can't breathe".
+        # We pass both raw and sanitized messages to the service layer.
+        # ------------------------------------------------------------------
+        raw_message = request.message
+        clean_message = sanitize_message(raw_message)
+
         if not clean_message or not validate_message_length(clean_message):
             logger.warning(
                 "Invalid message from user_id=%s (length=%d)",
@@ -95,29 +112,41 @@ async def chat(
             )
 
         # ------------------------------------------------------------------
-        # Day 3: Real AI response via Groq + LangChain with conversation memory
+        # Day 4: Real AI response via Groq + LangChain with conversation
+        # memory, intent classification, and emergency detection
         # ------------------------------------------------------------------
-        # process_chat now delegates to HokuChatbot which loads per-user
-        # memory from the database before calling Groq.
         result = await process_chat(
             message=clean_message,
             user_id=request.userId,
             db=db,
+            raw_message=raw_message,  # Day 4: Pass raw message for emergency detection
         )
 
         total_elapsed = time.perf_counter() - request_start
         logger.info(
-            "POST /api/ai/chat completed for user_id=%s in %.3fs",
+            "POST /api/ai/chat completed for user_id=%s in %.3fs "
+            "(intent=%s, confidence=%.2f)",
             request.userId,
             total_elapsed,
+            result.get("intent", "unknown"),
+            result.get("confidence", 0.0),
         )
 
-        # Alert if we breached the 4s NFR (should never happen due to 3.5s hard timeout)
+        # Alert if we breached the 4s NFR
         if total_elapsed > 4.0:
             logger.warning(
                 "NFR-02 BREACH: Request for user_id=%s took %.3fs (limit: 4s)",
                 request.userId,
                 total_elapsed,
+            )
+
+        # Day 4: Add emergency header if emergency was detected
+        # Emergency responses have intent="emergency" and confidence=1.0
+        if result.get("intent") == "emergency" and result.get("confidence", 0.0) >= 0.99:
+            response.headers["X-Hoku-Emergency"] = "true"
+            logger.critical(
+                "X-Hoku-Emergency header set for user_id=%s",
+                request.userId,
             )
 
         return ChatMessageResponse(**result)
@@ -166,7 +195,6 @@ async def get_chat_history(
     """
     try:
         user_id: int = current_user["id"]
-
         if not user_exists(db, user_id):
             raise UserNotFoundException()
 

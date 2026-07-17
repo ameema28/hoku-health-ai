@@ -12,6 +12,7 @@ import pytest
 from langchain.memory import ConversationBufferMemory
 
 from app.ai.chatbot import HokuChatbot
+from app.ai.intent_classifier import IntentEnum
 from app.ai.utils import (
     extract_json_from_response,
     parse_severity_from_response,
@@ -236,3 +237,32 @@ class TestUtilityFunctions:
     def test_extract_json_invalid_returns_empty(self):
         text = "not json at all"
         assert extract_json_from_response(text) == {}
+
+
+class TestIntentFields:
+    @pytest.mark.asyncio
+    async def test_response_includes_intent(self, chatbot, mock_llm_chain, mock_db, mock_memory):
+        with patch("app.ai.chatbot.HokuConversationMemory") as MockMem:
+            MockMem.return_value.load_memory.return_value = mock_memory
+            with patch("app.ai.chatbot.LLMChain", return_value=mock_llm_chain):
+                with patch.object(chatbot.intent_classifier, "classify_intent", return_value=(IntentEnum.SYMPTOM, 0.92)):
+                    result = await chatbot.get_response("I have a headache", user_id=1, db=mock_db)
+                    assert "intent" in result
+                    assert "confidence" in result
+                    assert result["intent"] == "symptom"
+                    assert result["confidence"] == 0.92
+
+    @pytest.mark.asyncio
+    async def test_emergency_bypass_returns_emergency_intent(self, chatbot, mock_db):
+        result = await chatbot.get_response("I can't breathe, chest pain", user_id=1, db=mock_db)
+        assert result["intent"] == "emergency"
+        assert result["confidence"] == 1.0
+        assert "🚨" in result["reply"]
+
+    @pytest.mark.asyncio
+    async def test_fallback_includes_intent_fields(self, chatbot, mock_db):
+        chatbot._main_llm = None
+        with patch.object(chatbot.intent_classifier, "classify_intent", return_value=(IntentEnum.GENERAL, 0.0)):
+            result = await chatbot.get_response("test", user_id=1, db=mock_db)
+            assert "intent" in result
+            assert "confidence" in result

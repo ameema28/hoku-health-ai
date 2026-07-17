@@ -1,8 +1,11 @@
 """
-Hoku Health Care - AI Configuration Module (Day 3).
+Hoku Health Care - AI Configuration Module (Day 4).
 
 Centralizes all AI/LLM hyperparameters, timeouts, and retry policies.
 All values are tuned for clinical safety and the <4s response NFR.
+
+Day 4 additions:
+- Intent classification settings (timeout, threshold, model)
 """
 
 import logging
@@ -18,7 +21,6 @@ logger = logging.getLogger(__name__)
 class AISettings(BaseSettings):
     """
     AI-specific settings layered on top of core application config.
-
     These parameters are deliberately conservative to balance response
     quality with the strict <4s latency requirement (NFR-02).
     """
@@ -86,6 +88,24 @@ class AISettings(BaseSettings):
     # Set to false on Windows if tiktoken fails to install (Rust extension).
     TIKTOKEN_ENABLED: bool = True
 
+    # ------------------------------------------------------------------
+    # Intent Classification (Day 4)
+    # ------------------------------------------------------------------
+    # Model for intent classification: llama-3.1-8b-instant is chosen
+    # because it's ~10x cheaper and ~3x faster than the 70B model,
+    # and 5-way classification is a simple task that 8B handles well.
+    INTENT_MODEL: str = "llama-3.1-8b-instant"
+
+    # Hard timeout for intent classification (500ms).
+    # If this is breached, we fall back to GENERAL and proceed with
+    # the main LLM call rather than failing the entire request.
+    INTENT_CLASSIFICATION_TIMEOUT: float = 0.5
+
+    # Confidence threshold for accepting intent classification.
+    # Below this, we fall back to GENERAL for safety.
+    # 0.7 provides good precision while allowing reasonable recall.
+    INTENT_CONFIDENCE_THRESHOLD: float = 0.7
+
     @property
     def groq_api_key(self) -> str:
         """Delegate to core settings to keep secrets in one place."""
@@ -102,13 +122,17 @@ def get_ai_settings() -> AISettings:
     ai_settings = AISettings()
     logger.info(
         "AI settings loaded: model=%s, temp=%.1f, max_tokens=%d, timeout=%.1fs, "
-        "memory_limit=%d, memory_tokens=%d",
+        "memory_limit=%d, memory_tokens=%d, intent_model=%s, "
+        "intent_timeout=%.2fs, intent_threshold=%.2f",
         ai_settings.GROQ_MAIN_MODEL,
         ai_settings.TEMPERATURE,
         ai_settings.MAX_TOKENS,
         ai_settings.GROQ_TIMEOUT_SECONDS,
         ai_settings.MEMORY_MESSAGE_LIMIT,
         ai_settings.MEMORY_MAX_TOKENS,
+        ai_settings.INTENT_MODEL,
+        ai_settings.INTENT_CLASSIFICATION_TIMEOUT,
+        ai_settings.INTENT_CONFIDENCE_THRESHOLD,
     )
     return ai_settings
 

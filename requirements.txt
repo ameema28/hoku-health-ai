@@ -15,12 +15,8 @@ alembic==1.13.2
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 httpx==0.27.0
-# sentence-transformers==3.0.1
-langchain>=0.1.0
-langchain-groq>=0.1.0
-httpx>=0.27.0
 
-# Token counting (optional — Windows fallback to len/4 if unavailable)
+# Token counting (optional --- Windows fallback to len/4 if unavailable)
 tiktoken==0.7.0
 
 # Testing
