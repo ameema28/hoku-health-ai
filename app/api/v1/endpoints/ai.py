@@ -1,24 +1,25 @@
 """
-Hoku Health Care - AI Chatbot API Endpoints (Day 5).
+Hoku Health Care - AI Chatbot API Endpoints (Day 6: Doctor integration).
 
-FastAPI router exposing the AI chatbot, chat history, and (Day 5) RAG
-debug/seed endpoints. All patient-facing endpoints require
-authentication and persist conversation history via the CRUD layer.
+FastAPI router exposing the AI chatbot, chat history, RAG debug/seed
+endpoints, and new doctor lookup endpoints.
 
-Day 5 additions:
-- POST /api/ai/rag/seed -- trigger FAQ seeding into the vector store.
-- GET /api/ai/rag/search?q={query} -- debug similarity search, returns
-  raw matched FAQ documents and scores without going through the LLM.
+Day 6 additions:
+- GET /api/ai/doctors?specialty={specialty} -- list available doctors by specialty
+- GET /api/ai/doctors/{doctor_id}/availability -- get a doctor's schedule
 """
 
 import logging
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.ai.rag import HokuRAG
+from app.ai.specialist_mapper import SpecialistMapper
+from app.ai.symptom_extractor import extract_symptoms_from_text
+from app.crud.crud_doctor import get_doctor_availability, get_doctors_by_specialty
 from app.core.dependencies import get_current_user, get_db
 from app.core.exceptions import UserNotFoundException
 from app.crud import get_chat_history_by_user, user_exists
@@ -28,6 +29,7 @@ from app.schemas.schemas_chat import (
     ChatMessageResponse,
     ChatSessionResponse,
 )
+from app.schemas.schemas_doctor import DoctorAvailability, DoctorRead, DoctorSuggestion
 from app.services.ai_service import process_chat
 from app.utils.validators import sanitize_message, validate_message_length
 
@@ -43,7 +45,8 @@ router = APIRouter(prefix="/api/ai", tags=["AI Chatbot"])
     summary="AI Health Chatbot",
     description=(
         "Send a health question to Hoku AI and receive a safe, non-diagnostic "
-        "response, grounded in Hoku Health Care's FAQ knowledge base when relevant."
+        "response, grounded in Hoku Health Care's FAQ knowledge base when relevant. "
+        "Day 6: Responses may include a doctor suggestion for symptom/general queries."
     ),
 )
 async def chat(
@@ -59,10 +62,10 @@ async def chat(
     1. Validate user identity and existence.
     2. Sanitize and validate the incoming message.
     3. Generate AI response via Groq LLM with conversation memory,
-       intent classification, and RAG-grounded FAQ retrieval (async,
-       3.5s timeout).
+       intent classification, RAG-grounded FAQ retrieval, and (Day 6)
+       doctor suggestion for symptom/general intents.
     4. Persist the conversation turn via the CRUD layer with intent.
-    5. Return the response with clinical metadata and intent fields.
+    5. Return the response with clinical metadata, intent, and doctor suggestion.
     6. Add X-Hoku-Emergency header if emergency was detected.
     """
     request_start = time.perf_counter()
@@ -255,4 +258,69 @@ async def search_rag(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to run similarity search.",
+        ) from exc
+
+
+# ---------------------------------------------------------------------------
+# Day 6: Doctor lookup endpoints
+# ---------------------------------------------------------------------------
+@router.get(
+    "/doctors",
+    response_model=List[DoctorRead],
+    status_code=status.HTTP_200_OK,
+    summary="List Doctors by Specialty",
+    description="Retrieve available doctors filtered by medical specialty.",
+)
+async def list_doctors_by_specialty(
+    specialty: str = Query(..., min_length=1, description="Medical specialty (e.g., Cardiologist)"),
+    db: Session = Depends(get_db),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> List[DoctorRead]:
+    """
+    List available doctors for a given medical specialty.
+
+    Returns doctors where is_available=True, ordered by experience_years DESC.
+    """
+    try:
+        doctors = get_doctors_by_specialty(db, specialty=specialty)
+        if not doctors:
+            logger.info("No doctors found for specialty=%s", specialty)
+            return []
+        return [DoctorRead.model_validate(d) for d in doctors]
+    except Exception as exc:
+        logger.exception("Failed to list doctors for specialty=%s: %s", specialty, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve doctor list.",
+        ) from exc
+
+
+@router.get(
+    "/doctors/{doctor_id}/availability",
+    response_model=List[DoctorAvailability],
+    status_code=status.HTTP_200_OK,
+    summary="Get Doctor Availability",
+    description="Retrieve a doctor's weekly schedule and booked slots.",
+)
+async def get_doctor_schedule(
+    doctor_id: int = Path(..., ge=1, description="Doctor ID"),
+    db: Session = Depends(get_db),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> List[DoctorAvailability]:
+    """
+    Get the weekly availability schedule for a specific doctor.
+
+    Returns all time slots for the doctor, including booked status.
+    """
+    try:
+        slots = get_doctor_availability(db, doctor_id=doctor_id)
+        if not slots:
+            logger.info("No availability slots found for doctor_id=%s", doctor_id)
+            return []
+        return [DoctorAvailability.model_validate(s) for s in slots]
+    except Exception as exc:
+        logger.exception("Failed to get availability for doctor_id=%s: %s", doctor_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve doctor availability.",
         ) from exc

@@ -1,5 +1,5 @@
 """
-Hoku Health Care - Chat Pydantic Schemas (Day 4).
+Hoku Health Care - Chat Pydantic Schemas (Day 6).
 
 Request/response models for the AI chatbot API, chat history
 persistence, and session retrieval. All schemas use Pydantic v2
@@ -7,14 +7,18 @@ ConfigDict for ORM mode.
 
 Day 4 additions:
 - IntentEnum for type-safe intent classification
-- intent and confidence fields in ChatMessageResponse (optional for
-  backward compatibility)
+- intent and confidence fields in ChatMessageResponse
+
+Day 6 additions:
+- DoctorSuggestion field in ChatMessageResponse for specialist routing
 """
 
 from datetime import datetime
 from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from app.schemas.schemas_doctor import DoctorSuggestion
 
 
 class IntentEnum(str):
@@ -63,6 +67,9 @@ class ChatMessageResponse(BaseModel):
     - intent: Classified intent of the user's message
     - confidence: Confidence score of the intent classification
 
+    Day 6 additions:
+    - doctor_suggestion: Recommended doctor with availability info
+
     Attributes:
         reply: The AI's conversational response.
         suggestedSpecialist: Recommended specialist type, if applicable.
@@ -70,6 +77,8 @@ class ChatMessageResponse(BaseModel):
         shouldSeeDoctor: Whether the user should seek professional care.
         intent: Classified intent category (Day 4).
         confidence: Intent classification confidence score (Day 4).
+        doctor_suggestion: Suggested doctor with specialty, experience,
+            and availability info (Day 6).
     """
     model_config = ConfigDict(from_attributes=True)
 
@@ -96,6 +105,11 @@ class ChatMessageResponse(BaseModel):
         description="Intent classification confidence score (0.0-1.0).",
         ge=0.0,
         le=1.0,
+    )
+    # Day 6: Doctor suggestion for symptom/general intents
+    doctor_suggestion: Optional[DoctorSuggestion] = Field(
+        None,
+        description="Recommended doctor with specialty, experience, and availability.",
     )
 
 

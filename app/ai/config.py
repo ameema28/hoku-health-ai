@@ -1,11 +1,15 @@
 """
-Hoku Health Care - AI Configuration Module (Day 4).
+Hoku Health Care - AI Configuration Module (Day 6).
 
 Centralizes all AI/LLM hyperparameters, timeouts, and retry policies.
 All values are tuned for clinical safety and the <4s response NFR.
 
 Day 4 additions:
 - Intent classification settings (timeout, threshold, model)
+
+Day 6 additions:
+- Symptom extraction settings (timeout, model)
+- Doctor lookup limit
 """
 
 import logging
@@ -35,85 +39,59 @@ class AISettings(BaseSettings):
     # ------------------------------------------------------------------
     # Model Selection
     # ------------------------------------------------------------------
-    GROQ_FAST_MODEL: str = "llama-3.1-8b-instant"      # was llama3-8b-8192
-    GROQ_MAIN_MODEL: str = "llama-3.3-70b-versatile"  # was llama3-70b-8192
+    GROQ_FAST_MODEL: str = "llama-3.1-8b-instant"
+    GROQ_MAIN_MODEL: str = "llama-3.3-70b-versatile"
 
     # ------------------------------------------------------------------
     # Generation Hyperparameters (Clinical Rationale)
     # ------------------------------------------------------------------
-    # Temperature 0.3: Low enough to reduce hallucination and keep
-    # outputs clinically conservative, yet high enough to avoid
-    # repetitive robotic phrasing that could alarm patients.
     TEMPERATURE: float = 0.3
-
-    # Max tokens 512: Caps response length to guarantee the Groq call
-    # + JSON parsing + DB persistence completes within the 3.5s hard
-    # timeout, leaving 0.5s buffer before the 4s NFR ceiling.
     MAX_TOKENS: int = 512
 
     # ------------------------------------------------------------------
     # Timeout & Retry Policy
     # ------------------------------------------------------------------
-    # Hard timeout of 3.5s ensures we always have time to fall back
-    # gracefully before the user perceives a delay.
     GROQ_TIMEOUT_SECONDS: float = 3.5
-
-    # 3 retries with exponential backoff (1s, 2s, 4s) — capped so total
-    # worst-case latency stays bounded. We abort early if the hard
-    # timeout is breached.
     MAX_RETRIES: int = 3
     RETRY_BACKOFF_BASE_SECONDS: float = 1.0
 
     # ------------------------------------------------------------------
     # Structured Output
     # ------------------------------------------------------------------
-    # Force JSON mode on Groq so we can reliably extract metadata
-    # (specialist, severity) without fragile regex on free text.
     RESPONSE_FORMAT: str = "json"
 
     # ------------------------------------------------------------------
     # Conversation Memory (Day 3)
     # ------------------------------------------------------------------
-    # Limit to 10 messages to balance context richness with token budget
-    # and keep memory load time under the 3.5s total latency budget.
-    # 10 turns ≈ 20 messages (human + ai) ≈ 200-300 tokens typical.
     MEMORY_MESSAGE_LIMIT: int = 10
-
-    # Max tokens allocated for conversation history.
-    # Leaves 60% of the 512-token context window for the current response
-    # generation = ~307 tokens for history.
     MEMORY_MAX_TOKENS: int = 307
-
-    # Enable tiktoken for accurate token counting.
-    # Set to false on Windows if tiktoken fails to install (Rust extension).
     TIKTOKEN_ENABLED: bool = True
 
     # ------------------------------------------------------------------
     # Intent Classification (Day 4)
     # ------------------------------------------------------------------
-    # Model for intent classification: llama-3.1-8b-instant is chosen
-    # because it's ~10x cheaper and ~3x faster than the 70B model,
-    # and 5-way classification is a simple task that 8B handles well.
     INTENT_MODEL: str = "llama-3.1-8b-instant"
-
-    # Hard timeout for intent classification (500ms).
-    # If this is breached, we fall back to GENERAL and proceed with
-    # the main LLM call rather than failing the entire request.
     INTENT_CLASSIFICATION_TIMEOUT: float = 0.5
-
-    # Confidence threshold for accepting intent classification.
-    # Below this, we fall back to GENERAL for safety.
-    # 0.7 provides good precision while allowing reasonable recall.
     INTENT_CONFIDENCE_THRESHOLD: float = 0.7
 
     # ------------------------------------------------------------------
-    # RAG Lookup
+    # RAG Lookup (Day 5)
     # ------------------------------------------------------------------
-    # Time budget for a single RAG/context lookup (seconds). Bounded so
-    # similarity searches against the DB cannot blow out the overall
-    # response latency budget. If this is breached, the chatbot will
-    # skip RAG and fall back to the general prompt.
     RAG_LOOKUP_TIMEOUT: float = 0.5
+
+    # ------------------------------------------------------------------
+    # Symptom Extraction & Doctor Lookup (Day 6)
+    # ------------------------------------------------------------------
+    # Timeout for LLM-based symptom extraction fallback (0.2s hard limit).
+    # If exceeded, defaults to ["fever"] → General Physician to protect NFR-02.
+    SYMPTOM_EXTRACTION_TIMEOUT: float = 0.2
+
+    # Model for LLM-based symptom extraction fallback.
+    SYMPTOM_EXTRACTION_MODEL: str = "llama-3.1-8b-instant"
+
+    # Maximum number of doctors to return in a specialist lookup.
+    DOCTOR_LOOKUP_LIMIT: int = 5
+
     @property
     def groq_api_key(self) -> str:
         """Delegate to core settings to keep secrets in one place."""
@@ -131,7 +109,8 @@ def get_ai_settings() -> AISettings:
     logger.info(
         "AI settings loaded: model=%s, temp=%.1f, max_tokens=%d, timeout=%.1fs, "
         "memory_limit=%d, memory_tokens=%d, intent_model=%s, "
-        "intent_timeout=%.2fs, intent_threshold=%.2f",
+        "intent_timeout=%.2fs, intent_threshold=%.2f, "
+        "symptom_timeout=%.2fs, doctor_limit=%d",
         ai_settings.GROQ_MAIN_MODEL,
         ai_settings.TEMPERATURE,
         ai_settings.MAX_TOKENS,
@@ -141,6 +120,8 @@ def get_ai_settings() -> AISettings:
         ai_settings.INTENT_MODEL,
         ai_settings.INTENT_CLASSIFICATION_TIMEOUT,
         ai_settings.INTENT_CONFIDENCE_THRESHOLD,
+        ai_settings.SYMPTOM_EXTRACTION_TIMEOUT,
+        ai_settings.DOCTOR_LOOKUP_LIMIT,
     )
     return ai_settings
 

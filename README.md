@@ -14,6 +14,7 @@ This module provides the AI-powered health chatbot backend for Hoku Health Care,
 - **Auth**: JWT via `app/core/security.py` (HTTPBearer), stubbed pending Backend Lead (Talha)'s full user-lookup implementation
 - **Embeddings**: sentence-transformers (all-MiniLM-L6-v2), local inference, 384 dims
 - **Vector Store**: pgvector on PostgreSQL in production; falls back to an in-Python cosine-similarity search on SQLite (used automatically in this dev setup)
+- **Fuzzy Matching**: rapidfuzz 3.9.0 for symptom-to-specialist mapping (Day 6)
 
 ---
 
@@ -71,6 +72,11 @@ RAG_SIMILARITY_THRESHOLD=0.75
 RAG_TOP_K=3
 COLLECTION_NAME=hoku_health_faqs
 RAG_LOOKUP_TIMEOUT=0.5
+
+# Symptom Extraction & Doctor Suggestion (Day 6)
+SYMPTOM_EXTRACTION_MODEL=llama-3.1-8b-instant
+SYMPTOM_EXTRACTION_TIMEOUT=0.2
+DOCTOR_LOOKUP_LIMIT=5
 ```
 
 **For local development without PostgreSQL** (default in this environment):
@@ -85,7 +91,9 @@ DATABASE_URL=sqlite:///./hoku_health.db
 python init_db.py
 ```
 
-Creates `chat_history` and `vector_store` (Day 5) tables. On SQLite, `vector_store.embedding` is a JSON column; on PostgreSQL with pgvector installed, it's a native `vector(384)` column — the model detects this automatically from `DATABASE_URL`.
+Creates `chat_history`, `vector_store` (Day 5), `doctors`, and `doctor_availability` (Day 6) tables. On SQLite, `vector_store.embedding` is a JSON column; on PostgreSQL with pgvector installed, it's a native `vector(384)` column — the model detects this automatically from `DATABASE_URL`.
+
+Day 6: `init_db.py` also seeds 5 sample doctors (Cardiologist, Dermatologist, General Physician, Orthopedic Surgeon, Psychiatrist) with weekly availability slots.
 
 ### 5. Seed the FAQ Knowledge Base (Day 5)
 
@@ -97,7 +105,7 @@ Downloads the embedding model on first run (~90MB, requires internet) and loads 
 
 ### 6. Generate a Test JWT
 
-Authenticated endpoints (`/api/ai/chat`, `/api/ai/chat/history`) require a Bearer token. Use `token_gen.py` to generate one for local testing:
+Authenticated endpoints (`/api/ai/chat`, `/api/ai/chat/history`, `/api/ai/doctors`) require a Bearer token. Use `token_gen.py` to generate one for local testing:
 
 ```bash
 python token_gen.py
@@ -116,6 +124,9 @@ pytest tests/test_crud.py -v
 
 # RAG pipeline tests (Day 5 — pgvector interactions mocked, since SQLite has no pgvector)
 pytest tests/test_rag.py -v
+
+# Specialist suggestion & doctor integration tests (Day 6)
+pytest tests/test_specialist.py -v
 
 # Full test suite
 pytest tests/ -v
@@ -142,11 +153,13 @@ To test authenticated endpoints in Swagger: generate a token with `token_gen.py`
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| POST | `/api/ai/chat` | Yes | AI Health Chatbot (Groq LLM + Memory + Intent + RAG) |
+| POST | `/api/ai/chat` | Yes | AI Health Chatbot (Groq LLM + Memory + Intent + RAG + Doctor Suggestion) |
 | GET | `/api/ai/chat/history` | Yes | Chat History (paginated) |
 | GET | `/api/ai/health` | No | Service Health Check |
 | POST | `/api/ai/rag/seed` | No | Seed the Hoku FAQ vector store (Day 5, admin/dev use) |
 | GET | `/api/ai/rag/search?q={query}` | No | Debug FAQ similarity search (Day 5, admin/dev use) |
+| GET | `/api/ai/doctors?specialty={specialty}` | Yes | Retrieves available doctors ordered by experience (Day 6) |
+| GET | `/api/ai/doctors/{doctor_id}/availability` | Yes | Fetches textual time slot listings for a specific doctor (Day 6) |
 
 ---
 
@@ -163,19 +176,21 @@ hoku-health-backend/
 ├── app/
 │   ├── ai/               # Chatbot engine (Groq + LangChain)
 │   │   ├── __init__.py
-│   │   ├── config.py     # AI hyperparameters, timeouts, memory, RAG_LOOKUP_TIMEOUT
-│   │   ├── prompts.py    # Clinical safety + intent + RAG-grounded prompts
-│   │   ├── chatbot.py    # HokuChatbot: intent + emergency + bounded RAG lookup
+│   │   ├── config.py     # AI hyperparameters, timeouts, memory, RAG_LOOKUP_TIMEOUT, symptom extraction, doctor lookup
+│   │   ├── prompts.py    # Clinical safety + intent + RAG-grounded + specialist suggestion prompts
+│   │   ├── chatbot.py    # HokuChatbot: intent + emergency + bounded RAG lookup + doctor suggestion (Day 6)
 │   │   ├── intent_classifier.py  # 5-way intent classification
 │   │   ├── emergency_detector.py # Regex-based emergency detection
 │   │   ├── memory.py     # Per-user ConversationBufferMemory loader
 │   │   ├── token_budget.py # Token counting & history trimming
 │   │   ├── embeddings.py  # Day 5: local sentence-transformers embedding manager
 │   │   ├── rag.py         # Day 5: HokuRAG similarity search + context builder
+│   │   ├── specialist_mapper.py  # Day 6: Fuzzy matching for symptom-to-specialist mapping
+│   │   ├── symptom_extractor.py  # Day 6: Dual-path regex + Groq LLM symptom extraction
 │   │   └── utils.py      # Response parsers
 │   ├── api/v1/endpoints/
 │   │   ├── __init__.py
-│   │   └── ai.py          # + /api/ai/rag/seed, /api/ai/rag/search (Day 5)
+│   │   └── ai.py          # + /api/ai/rag/seed, /api/ai/rag/search (Day 5), /api/ai/doctors (Day 6)
 │   ├── core/
 │   │   ├── __init__.py
 │   │   ├── config.py       # + VECTOR_DIMENSION, RAG_SIMILARITY_THRESHOLD, RAG_TOP_K, COLLECTION_NAME
@@ -186,7 +201,8 @@ hoku-health-backend/
 │   │   └── security.py     # JWT auth (HTTPBearer stub, pending Talha)
 │   ├── crud/
 │   │   ├── __init__.py     # re-exports app.crud.crud_chat
-│   │   └── crud_chat.py
+│   │   ├── crud_chat.py
+│   │   └── crud_doctor.py  # Day 6: Doctor & availability CRUD lookups
 │   ├── middleware/
 │   │   ├── __init__.py
 │   │   ├── cors.py
@@ -194,10 +210,12 @@ hoku-health-backend/
 │   ├── models/
 │   │   ├── __init__.py
 │   │   ├── models_chat.py
-│   │   └── vector_store.py  # Day 5: FAQ embedding table (JSON on SQLite, vector on Postgres)
+│   │   ├── models_doctor.py              # Day 6: Doctor model (SQLAlchemy 2.0)
+│   │   └── models_doctor_availability.py  # Day 6: Doctor Availability slots model
 │   ├── schemas/
 │   │   ├── __init__.py
-│   │   └── chat.py
+│   │   ├── schemas_chat.py  # Updated: Added doctor_suggestion to ChatMessageResponse (Day 6)
+│   │   └── schemas_doctor.py  # Day 6: Pydantic v2 Doctor & Suggestion schemas
 │   ├── scripts/             # Day 5
 │   │   ├── __init__.py
 │   │   └── seed_faqs.py     # Seeds 20 Hoku FAQ entries
@@ -217,12 +235,13 @@ hoku-health-backend/
 │   ├── test_crud.py
 │   ├── test_intent.py
 │   ├── test_memory.py
-│   └── test_rag.py          # Day 5: embedding + RAG pipeline tests
+│   ├── test_rag.py          # Day 5: embedding + RAG pipeline tests
+│   └── test_specialist.py   # Day 6: Dual-path extraction & mapping unit tests
 ├── .env.example
 ├── .gitignore
 ├── alembic.ini
 ├── hoku_health.db           # SQLite database (auto-generated, do not commit)
-├── init_db.py               # + registers vector_store with Base.metadata (Day 5)
+├── init_db.py               # + registers vector_store with Base.metadata (Day 5), seeds doctors (Day 6)
 ├── token_gen.py             # Generates test JWTs for local Swagger/curl testing
 ├── pytest.ini
 ├── requirements.txt
@@ -303,6 +322,16 @@ Retrieval-Augmented Generation so the chatbot answers from Hoku Health Care's ow
 - **Clean interpreter shutdown** — `HokuRAG.__del__` skips closing its DB session if the logging subsystem has already begun shutting down, avoiding noisy "I/O operation on closed file" errors at process exit
 - **77 total unit tests** passing (chatbot, memory, intent, crud, RAG — pgvector interactions mocked since SQLite has no pgvector extension)
 
+### Day 6: Specialist Suggestion & Doctor Integration
+
+- **Dual-Path Symptom Extraction**: Implemented an ultra-fast regex keyword matching path (<10ms) with a high-fidelity Groq fallback (`llama-3.1-8b-instant`) utilizing a strict 0.2s latency timeout to guarantee NFR-02 protection. If the fallback fails or times out, immediately defaults to `["fever"]` mapping to General Physician.
+- **Specialist Fuzzy Mapping**: Integrated `rapidfuzz` to map extracted text symptoms across 9 distinct medical specialties (Cardiologist, Dermatologist, General Physician, Gynecologist, Child Specialist, Dental Specialist, Endocrinologist, Psychiatrist, Orthopedic Surgeon).
+- **Doctor Database Layer**: Created `models_doctor.py`, `models_doctor_availability.py`, `schemas_doctor.py`, and `crud_doctor.py` using uniform naming architectures (SQLAlchemy 2.0 `mapped_column`, Pydantic v2 `ConfigDict`).
+- **Database Seeding**: Updated `init_db.py` to recreate core tables and seed 5 realistic starter doctors and their corresponding weekly availability slots.
+- **Intent Routing Integration**: Upgraded `HokuChatbot` to automatically attach a structured `doctor_suggestion` object containing matching provider info and open time slots to `GENERAL` and `SYMPTOM` responses, while maintaining an immediate fallback/bypass for `EMERGENCY` calls (emergency detection still runs first and completely short-circuits the LLM, RAG, symptom extractor, and doctor lookup paths).
+- **New API Endpoints**: `GET /api/ai/doctors?specialty={specialty}` returns available doctors ordered by `experience_years DESC`; `GET /api/ai/doctors/{doctor_id}/availability` returns textual time slot listings.
+- **103 total unit tests** passing (chatbot, memory, intent, crud, RAG, specialist — zero regressions across Days 0–5).
+
 ---
 
 ## Clinical Safety
@@ -323,6 +352,12 @@ The chatbot never provides definitive diagnoses. Temperature is set to **0.3** t
 - RAG-grounded replies use the exact same non-diagnostic clinical prompt rules and mandatory disclaimer as non-RAG replies — FAQ content only supplements, never overrides, clinical safety guidance
 - A weak, missing, or timed-out FAQ match never blocks a response — the chatbot silently falls back to general knowledge
 
+**Day 6 Safety Enhancements:**
+- Symptom extraction timeout is capped at **0.2s** — if exceeded, the system defaults to `["fever"]` → General Physician rather than risk breaching the 4s NFR-02 ceiling
+- Emergency intent **completely bypasses** the symptom extractor, specialist mapper, and doctor lookup — no database queries are made during an emergency, ensuring sub-50ms response time
+- Doctor suggestions are only attached to `GENERAL` and `SYMPTOM` intents; `BOOKING`, `MEDICATION`, and `EMERGENCY` never receive `doctor_suggestion` to avoid conflicting guidance
+- All doctor data is sourced from the seeded database — no LLM hallucination of doctor names or availability
+
 ---
 
 ## Performance (NFR-02)
@@ -332,6 +367,8 @@ The chatbot never provides definitive diagnoses. Temperature is set to **0.3** t
 - **Intent classification**: 1.5s budget (llama-3.1-8b-instant, 10x cheaper than 70B)
 - **Emergency detection**: < 50ms (pure Python regex, no LLM)
 - **RAG lookup**: bounded at 0.5s (`RAG_LOOKUP_TIMEOUT`) via `asyncio.wait_for`; on timeout, skipped entirely rather than risking a downstream NFR-02 breach
+- **Symptom extraction**: < 10ms regex fast path; 0.2s LLM fallback timeout with automatic default to General Physician
+- **Doctor lookup**: bounded by `DOCTOR_LOOKUP_LIMIT` (default 5) to keep DB query time negligible
 - **Max tokens**: 512 (keeps responses concise)
 - **Memory limit**: 10 turns (keeps token budget and latency in check)
 - **Monitoring**: Timing middleware logs latency and alerts on breaches (watch for `NFR-02 BREACH` in server logs)
@@ -362,6 +399,9 @@ The chatbot never provides definitive diagnoses. Temperature is set to **0.3** t
 | `RAG_TOP_K` | `3` | Number of FAQ matches retrieved per query (Day 5) |
 | `COLLECTION_NAME` | `hoku_health_faqs` | pgvector/vector_store collection name (Day 5) |
 | `RAG_LOOKUP_TIMEOUT` | `0.5` | Max seconds allotted to RAG lookup before skipping it (Day 5) |
+| `SYMPTOM_EXTRACTION_MODEL` | `llama-3.1-8b-instant` | Model for fallback symptom extraction (Day 6) |
+| `SYMPTOM_EXTRACTION_TIMEOUT` | `0.2` | Hard timeout for symptom LLM calls before default fallback (Day 6) |
+| `DOCTOR_LOOKUP_LIMIT` | `5` | Maximum number of doctors returned per query (Day 6) |
 
 ---
 

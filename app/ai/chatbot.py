@@ -1,22 +1,18 @@
 """
-Hoku Health Care - AI Chatbot Engine (Day 5: RAG pipeline integrated).
+Hoku Health Care - AI Chatbot Engine (Day 6: Specialist suggestion & doctor integration).
 
 Core chatbot logic using Groq LLMs via LangChain 0.2.6 with per-user
-conversation memory, intent classification, emergency detection, and
-(Day 5) FAQ retrieval-augmented generation via pgvector.
+conversation memory, intent classification, emergency detection, RAG,
+and (Day 6) symptom-to-specialist mapping with doctor suggestions.
 
 Flow:
 1. Emergency detection (regex, <50ms) -- bypasses LLM/RAG if emergency
 2. Intent classification (llama-3.1-8b-instant, <500ms)
-3. RAG lookup (Day 5): for GENERAL/SYMPTOM intents only, similarity_search
-   against the Hoku FAQ collection. BOOKING/MEDICATION/EMERGENCY skip RAG
-   entirely -- those flows are already well-served by the existing
-   intent-aware prompt augmentation and don't benefit from FAQ grounding.
-4. Intent-aware system prompt augmentation
-5. Main LLM response generation (llama-3.3-70b-versatile), using
-   RAG_SYSTEM_PROMPT when FAQ context was found, else the default
-   SYSTEM_PROMPT
-6. Persistence with intent metadata
+3. RAG lookup (Day 5): for GENERAL/SYMPTOM intents only
+4. Symptom extraction + specialist mapping + doctor lookup (Day 6)
+5. Intent-aware system prompt augmentation
+6. Main LLM response generation (llama-3.3-70b-versatile)
+7. Persistence with intent metadata
 """
 
 import asyncio
@@ -24,7 +20,7 @@ import json
 import logging
 import re
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
@@ -46,14 +42,19 @@ from app.ai.intent_classifier import IntentClassifier, IntentEnum
 from app.ai.memory import HokuConversationMemory
 from app.ai.prompts import chat_prompt_template, rag_chat_prompt_template
 from app.ai.rag import HokuRAG
+from app.ai.specialist_mapper import SpecialistMapper
+from app.ai.symptom_extractor import extract_symptoms_from_text
+from app.crud.crud_doctor import get_doctor_availability
+from app.schemas.schemas_doctor import DoctorAvailability as DoctorAvailabilitySchema, DoctorSuggestion
 from app.utils.constants import SAFETY_DISCLAIMER
 
 logger = logging.getLogger(__name__)
 
-# Day 5: intents for which a Hoku FAQ lookup is worthwhile. Booking and
-# medication flows are handled by dedicated intent-aware prompts and
-# don't benefit from FAQ grounding; emergency always bypasses the LLM.
+# Day 5: intents for which a Hoku FAQ lookup is worthwhile.
 _RAG_ELIGIBLE_INTENTS = {IntentEnum.GENERAL, IntentEnum.SYMPTOM}
+
+# Day 6: intents eligible for specialist suggestion flow
+_SPECIALIST_ELIGIBLE_INTENTS = {IntentEnum.SYMPTOM, IntentEnum.GENERAL}
 
 
 class HokuChatbot:
@@ -64,12 +65,12 @@ class HokuChatbot:
     - Fast model (llama-3.1-8b-instant): Intent classification (Day 4).
     - Main model (llama-3.3-70b-versatile): Patient-facing response.
 
-    Day 5 addition:
-    - Lazily-initialized HokuRAG instance for FAQ-grounded responses.
+    Day 5 addition: Lazily-initialized HokuRAG instance.
+    Day 6 addition: SpecialistMapper for symptom-to-doctor routing.
     """
 
     def __init__(self) -> None:
-        """Initialize with lazy-loaded Groq clients, intent classifier, and RAG."""
+        """Initialize with lazy-loaded Groq clients, intent classifier, RAG, and specialist mapper."""
         self.groq_api_key = ai_settings.groq_api_key
         self.fast_model = ai_settings.GROQ_FAST_MODEL
         self.main_model = ai_settings.GROQ_MAIN_MODEL
@@ -82,7 +83,8 @@ class HokuChatbot:
         self._main_llm: Optional[Any] = None
         self._chain: Optional[Any] = None
         self._intent_classifier: Optional[IntentClassifier] = None
-        self._rag: Optional[HokuRAG] = None  # Day 5: lazy, like the LLMs
+        self._rag: Optional[HokuRAG] = None  # Day 5
+        self._specialist_mapper: Optional[SpecialistMapper] = None  # Day 6
 
     @property
     def fast_llm(self) -> Any:
@@ -142,6 +144,13 @@ class HokuChatbot:
             self._rag = HokuRAG()
         return self._rag
 
+    @property
+    def specialist_mapper(self) -> SpecialistMapper:
+        """Lazy initializer for the Day 6 specialist mapper."""
+        if self._specialist_mapper is None:
+            self._specialist_mapper = SpecialistMapper()
+        return self._specialist_mapper
+
     def build_chain(self) -> Any:
         """Build LLMChain with the default system prompt and main model."""
         if self._chain is None:
@@ -182,6 +191,83 @@ class HokuChatbot:
         }
         return context_map.get(intent, context_map[IntentEnum.GENERAL])
 
+    async def _lookup_doctor_suggestion(
+        self,
+        message: str,
+        db: Session,
+    ) -> Optional[DoctorSuggestion]:
+        """
+        Day 6: Extract symptoms, map to specialist, query DB, and build suggestion.
+
+        This runs as a parallel/sequential step within the overall latency
+        budget. If it exceeds its internal budget, it returns None gracefully
+        rather than breaching NFR-02.
+
+        Args:
+            message: Sanitized user message.
+            db: SQLAlchemy database session.
+
+        Returns:
+            DoctorSuggestion | None: Suggestion data or None if lookup fails.
+        """
+        lookup_start = time.perf_counter()
+
+        try:
+            # Extract symptoms (fast regex or LLM fallback with 0.2s timeout)
+            symptoms = await extract_symptoms_from_text(message)
+            if not symptoms:
+                logger.debug("No symptoms extracted, skipping doctor lookup")
+                return None
+
+            # Map to specialist
+            specialist = SpecialistMapper.map_symptoms_to_specialist(symptoms)
+            if not specialist:
+                logger.debug("No specialist mapping found, skipping doctor lookup")
+                return None
+
+            # Query DB for available doctors
+            doctors = SpecialistMapper.get_doctors_by_specialist(db, specialist)
+            if not doctors:
+                logger.info("No available doctors found for '%s'", specialist)
+                return None
+
+            # Pick top doctor
+            top_doctor = SpecialistMapper.pick_top_doctor(doctors)
+            if top_doctor is None:
+                return None
+
+            # Get availability (limit to next 3 slots for brevity)
+            slots = get_doctor_availability(db, doctor_id=top_doctor.id, include_booked=False)
+            availability_schemas = [
+                DoctorAvailabilitySchema.model_validate(slot) for slot in slots[:3]
+            ]
+
+            suggestion = DoctorSuggestion(
+                specialist=specialist,
+                doctor_name=getattr(top_doctor, "name", f"Dr. {top_doctor.specialty}"),
+                experience=top_doctor.experience_years,
+                availability=availability_schemas if availability_schemas else None,
+                doctor_id=top_doctor.id,
+            )
+
+            elapsed = time.perf_counter() - lookup_start
+            logger.info(
+                "Doctor suggestion built in %.3fs: specialist='%s', doctor_id=%d",
+                elapsed,
+                specialist,
+                top_doctor.id,
+            )
+            return suggestion
+
+        except Exception as exc:
+            elapsed = time.perf_counter() - lookup_start
+            logger.warning(
+                "Doctor suggestion lookup failed after %.3fs: %s",
+                elapsed,
+                exc,
+            )
+            return None
+
     async def get_response(
         self,
         message: str,
@@ -191,27 +277,18 @@ class HokuChatbot:
     ) -> Dict[str, Any]:
         """
         Generate chatbot response with intent classification, emergency
-        detection, RAG retrieval, timeout, fallback, and memory.
+        detection, RAG retrieval, specialist suggestion, timeout, fallback,
+        and memory.
 
         Steps:
-        1. Emergency detection on RAW message (regex, <50ms) -- bypass everything
+        1. Emergency detection on RAW message (regex, <50ms)
         2. Intent classification on sanitized message (async, <500ms)
         3. RAG lookup for GENERAL/SYMPTOM intents (Day 5)
-        4. Build intent-aware context
-        5. Load conversation memory from DB
-        6. Generate response with main LLM (RAG-aware prompt if FAQ context found)
-        7. Return with intent and confidence metadata
-
-        Args:
-            message: Sanitized user message (for LLM processing).
-            user_id: Authenticated user ID.
-            db: SQLAlchemy database session for memory loading.
-            raw_message: Optional raw user message (before sanitization),
-                used for emergency detection to avoid HTML-escaping issues.
-
-        Returns:
-            Dict with reply, suggestedSpecialist, severity, shouldSeeDoctor,
-            intent, and confidence.
+        4. Specialist suggestion for SYMPTOM/GENERAL intents (Day 6)
+        5. Build intent-aware context
+        6. Load conversation memory from DB
+        7. Generate response with main LLM
+        8. Return with intent, confidence, and doctor_suggestion metadata
         """
         start_time = time.perf_counter()
         logger.info("Processing chat for user_id=%s", user_id)
@@ -251,9 +328,6 @@ class HokuChatbot:
         faq_context = ""
         if intent in _RAG_ELIGIBLE_INTENTS:
             try:
-                # Bound RAG lookup so DB similarity_search cannot exceed
-                # the allotted latency budget. If it times out, proceed
-                # without RAG context (fallback to general prompt).
                 rag_task = asyncio.to_thread(self.rag.build_context, message)
                 faq_context = await asyncio.wait_for(
                     rag_task, timeout=ai_settings.RAG_LOOKUP_TIMEOUT
@@ -283,33 +357,44 @@ class HokuChatbot:
             )
         else:
             logger.info(
-                "No RAG context for user_id=%s (intent=%s, %.3fs) -- using default prompt",
+                "No RAG context for user_id=%s (intent=%s, %.3fs)",
                 user_id,
                 intent.value,
                 rag_elapsed,
             )
 
         # ---------------------------------------------------------------
-        # Step 4: Build intent-aware context
+        # Step 4: Specialist suggestion (Day 6) -- SYMPTOM/GENERAL only
+        # Skip for BOOKING, MEDICATION, EMERGENCY
         # ---------------------------------------------------------------
-        intent_context = self._build_intent_context(intent)
-        # TODO Day 6: Route booking intents to appointment API
-        # if intent == IntentEnum.BOOKING:
-        #     pass
+        doctor_suggestion: Optional[DoctorSuggestion] = None
+        if intent in _SPECIALIST_ELIGIBLE_INTENTS:
+            doctor_suggestion = await self._lookup_doctor_suggestion(message, db)
+        else:
+            logger.debug(
+                "Skipping specialist suggestion for intent=%s",
+                intent.value,
+            )
 
         # ---------------------------------------------------------------
-        # Step 5: Check main LLM availability
+        # Step 5: Build intent-aware context
+        # ---------------------------------------------------------------
+        intent_context = self._build_intent_context(intent)
+
+        # ---------------------------------------------------------------
+        # Step 6: Check main LLM availability
         # ---------------------------------------------------------------
         if self.main_llm is None:
             logger.error("Main LLM unavailable -- returning fallback")
             fallback = self._fallback_response("LLM initialization failed")
             fallback["intent"] = intent.value
             fallback["confidence"] = confidence
+            fallback["doctor_suggestion"] = None
             return fallback
 
         try:
             # -------------------------------------------------------
-            # Step 6: Load conversation memory from database
+            # Step 7: Load conversation memory from database
             # -------------------------------------------------------
             memory_start = time.perf_counter()
             memory_manager = HokuConversationMemory(
@@ -327,14 +412,14 @@ class HokuChatbot:
                 len(history_list),
             )
 
-            # Adjust LLM timeout: intent + rag + memory + LLM must stay under 3.5s
+            # Adjust LLM timeout
             remaining_timeout = max(
                 0.1,
                 self.timeout - intent_elapsed - rag_elapsed - memory_elapsed,
             )
 
             # -------------------------------------------------------
-            # Step 7: Build chain (RAG-aware if context found) and generate
+            # Step 8: Build chain and generate response
             # -------------------------------------------------------
             if LLMChain is None:
                 raise RuntimeError("LLMChain not available")
@@ -362,13 +447,14 @@ class HokuChatbot:
                 reply = f"{reply} {SAFETY_DISCLAIMER}"
             parsed["reply"] = reply
 
-            response = {
+            response: Dict[str, Any] = {
                 "reply": parsed.get("reply", self._fallback_response()["reply"]),
                 "suggestedSpecialist": parsed.get("suggestedSpecialist"),
                 "severity": parsed.get("severity", "unknown"),
                 "shouldSeeDoctor": parsed.get("shouldSeeDoctor", True),
                 "intent": intent.value,
                 "confidence": confidence,
+                "doctor_suggestion": doctor_suggestion.model_dump() if doctor_suggestion else None,
             }
             return response
 
@@ -378,6 +464,7 @@ class HokuChatbot:
             fallback = self._fallback_response("timeout")
             fallback["intent"] = intent.value
             fallback["confidence"] = confidence
+            fallback["doctor_suggestion"] = None
             return fallback
 
         except Exception as exc:
@@ -386,6 +473,7 @@ class HokuChatbot:
             fallback = self._fallback_response(str(exc))
             fallback["intent"] = intent.value
             fallback["confidence"] = confidence
+            fallback["doctor_suggestion"] = None
             return fallback
 
     @staticmethod
@@ -454,4 +542,5 @@ class HokuChatbot:
             "shouldSeeDoctor": True,
             "intent": "general",
             "confidence": 0.0,
+            "doctor_suggestion": None,
         }

@@ -24,3 +24,6 @@ tiktoken==0.7.0
 pytest==8.2.2
 pytest-asyncio==0.23.7
 pytest-cov==5.0.0
+
+# Day 6: Fuzzy string matching for symptom-to-specialist mapping
+rapidfuzz==3.9.0
