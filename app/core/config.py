@@ -37,6 +37,13 @@ class Settings(BaseSettings):
     # Embeddings (stubbed for future RAG pipeline)
     EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
 
+    # Day 5: RAG pipeline (pgvector on Postgres; falls back to in-Python
+    # cosine similarity on SQLite -- see app/ai/rag.py)
+    VECTOR_DIMENSION: int = 384
+    RAG_SIMILARITY_THRESHOLD: float = 0.75
+    RAG_TOP_K: int = 3
+    COLLECTION_NAME: str = "hoku_health_faqs"
+
     # Application
     ENVIRONMENT: str = "development"
     DEBUG: bool = False

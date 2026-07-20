@@ -106,6 +106,14 @@ class AISettings(BaseSettings):
     # 0.7 provides good precision while allowing reasonable recall.
     INTENT_CONFIDENCE_THRESHOLD: float = 0.7
 
+    # ------------------------------------------------------------------
+    # RAG Lookup
+    # ------------------------------------------------------------------
+    # Time budget for a single RAG/context lookup (seconds). Bounded so
+    # similarity searches against the DB cannot blow out the overall
+    # response latency budget. If this is breached, the chatbot will
+    # skip RAG and fall back to the general prompt.
+    RAG_LOOKUP_TIMEOUT: float = 0.5
     @property
     def groq_api_key(self) -> str:
         """Delegate to core settings to keep secrets in one place."""

@@ -1,15 +1,14 @@
 """
-Hoku Health Care - AI Chatbot API Endpoints (Day 4).
+Hoku Health Care - AI Chatbot API Endpoints (Day 5).
 
-FastAPI router exposing the AI chatbot and chat history services.
-All endpoints require authentication and persist conversation history
-via the CRUD layer.
+FastAPI router exposing the AI chatbot, chat history, and (Day 5) RAG
+debug/seed endpoints. All patient-facing endpoints require
+authentication and persist conversation history via the CRUD layer.
 
-Day 4 updates:
-- Response now includes intent and confidence fields
-- If emergency detected, adds HTTP header: X-Hoku-Emergency: true
-- Timing middleware includes intent classification time in total latency
-- Passes raw message for emergency detection to avoid HTML-escaping issues
+Day 5 additions:
+- POST /api/ai/rag/seed -- trigger FAQ seeding into the vector store.
+- GET /api/ai/rag/search?q={query} -- debug similarity search, returns
+  raw matched FAQ documents and scores without going through the LLM.
 """
 
 import logging
@@ -19,13 +18,11 @@ from typing import Any, Dict, List
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
+from app.ai.rag import HokuRAG
 from app.core.dependencies import get_current_user, get_db
 from app.core.exceptions import UserNotFoundException
-from app.crud.chat import (
-    get_chat_history_by_user,
-    user_exists,
-)
-from app.schemas.chat import (
+from app.crud import get_chat_history_by_user, user_exists
+from app.schemas.schemas_chat import (
     ChatHistoryItem,
     ChatMessageRequest,
     ChatMessageResponse,
@@ -44,12 +41,14 @@ router = APIRouter(prefix="/api/ai", tags=["AI Chatbot"])
     response_model=ChatMessageResponse,
     status_code=status.HTTP_200_OK,
     summary="AI Health Chatbot",
-    description="Send a health question to Hoku AI and receive a "
-    "safe, non-diagnostic response with optional specialist guidance.",
+    description=(
+        "Send a health question to Hoku AI and receive a safe, non-diagnostic "
+        "response, grounded in Hoku Health Care's FAQ knowledge base when relevant."
+    ),
 )
 async def chat(
     request: ChatMessageRequest,
-    response: Response,  # Day 4: For adding emergency header
+    response: Response,
     db: Session = Depends(get_db),
     current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> ChatMessageResponse:
@@ -59,44 +58,24 @@ async def chat(
     Steps:
     1. Validate user identity and existence.
     2. Sanitize and validate the incoming message.
-    3. Generate AI response via Groq LLM with conversation memory
-       and intent classification (async, 3.5s timeout).
+    3. Generate AI response via Groq LLM with conversation memory,
+       intent classification, and RAG-grounded FAQ retrieval (async,
+       3.5s timeout).
     4. Persist the conversation turn via the CRUD layer with intent.
     5. Return the response with clinical metadata and intent fields.
     6. Add X-Hoku-Emergency header if emergency was detected.
-
-    Args:
-        request: Validated chat message payload.
-        response: FastAPI Response object for header injection.
-        db: SQLAlchemy database session.
-        current_user: Authenticated user dictionary from JWT.
-
-    Returns:
-        ChatMessageResponse: AI reply with clinical metadata and intent.
-
-    Raises:
-        UserNotFoundException: If the user does not exist.
-        HTTPException: If validation fails or an unexpected error occurs.
     """
     request_start = time.perf_counter()
     try:
-        # Verify the requesting user matches the authenticated token
         if request.userId != current_user["id"]:
-            raise UserNotFoundException(
-                detail="User not found or access denied"
-            )
+            raise UserNotFoundException(detail="User not found or access denied")
 
-        # Verify user exists in the database (placeholder until User model is ready)
         if not user_exists(db, request.userId):
             raise UserNotFoundException()
 
-        # ------------------------------------------------------------------
-        # Day 4: Store raw message BEFORE sanitization for emergency detection
-        # sanitize_message() calls html.escape() which converts:
-        #   ' -> &#x27;  (apostrophe)
-        # This breaks emergency regex keywords like "can't breathe".
-        # We pass both raw and sanitized messages to the service layer.
-        # ------------------------------------------------------------------
+        # Store raw message BEFORE sanitization for emergency detection --
+        # sanitize_message() HTML-escapes text (' -> &#x27;), which breaks
+        # emergency regex keywords like "can't breathe".
         raw_message = request.message
         clean_message = sanitize_message(raw_message)
 
@@ -111,28 +90,22 @@ async def chat(
                 detail="Message cannot be empty or exceeds maximum length.",
             )
 
-        # ------------------------------------------------------------------
-        # Day 4: Real AI response via Groq + LangChain with conversation
-        # memory, intent classification, and emergency detection
-        # ------------------------------------------------------------------
         result = await process_chat(
             message=clean_message,
             user_id=request.userId,
             db=db,
-            raw_message=raw_message,  # Day 4: Pass raw message for emergency detection
+            raw_message=raw_message,
         )
 
         total_elapsed = time.perf_counter() - request_start
         logger.info(
-            "POST /api/ai/chat completed for user_id=%s in %.3fs "
-            "(intent=%s, confidence=%.2f)",
+            "POST /api/ai/chat completed for user_id=%s in %.3fs (intent=%s, confidence=%.2f)",
             request.userId,
             total_elapsed,
             result.get("intent", "unknown"),
             result.get("confidence", 0.0),
         )
 
-        # Alert if we breached the 4s NFR
         if total_elapsed > 4.0:
             logger.warning(
                 "NFR-02 BREACH: Request for user_id=%s took %.3fs (limit: 4s)",
@@ -140,14 +113,9 @@ async def chat(
                 total_elapsed,
             )
 
-        # Day 4: Add emergency header if emergency was detected
-        # Emergency responses have intent="emergency" and confidence=1.0
         if result.get("intent") == "emergency" and result.get("confidence", 0.0) >= 0.99:
             response.headers["X-Hoku-Emergency"] = "true"
-            logger.critical(
-                "X-Hoku-Emergency header set for user_id=%s",
-                request.userId,
-            )
+            logger.critical("X-Hoku-Emergency header set for user_id=%s", request.userId)
 
         return ChatMessageResponse(**result)
 
@@ -174,54 +142,23 @@ async def get_chat_history(
     db: Session = Depends(get_db),
     current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> ChatSessionResponse:
-    """
-    Retrieve chat history for the authenticated user.
-
-    Converts database rows into a chronological list of human/AI message
-    pairs suitable for frontend rendering.
-
-    Args:
-        limit: Maximum number of history rows to fetch.
-        skip: Number of rows to skip (pagination).
-        db: SQLAlchemy database session.
-        current_user: Authenticated user dictionary from JWT.
-
-    Returns:
-        ChatSessionResponse: User's chat session in chronological order.
-
-    Raises:
-        UserNotFoundException: If the user does not exist.
-        HTTPException: On unexpected database errors.
-    """
+    """Retrieve chat history for the authenticated user, chronologically."""
     try:
         user_id: int = current_user["id"]
         if not user_exists(db, user_id):
             raise UserNotFoundException()
 
-        # Fetch history (newest first from DB)
-        history = get_chat_history_by_user(
-            db,
-            user_id=user_id,
-            limit=limit,
-            skip=skip,
-        )
+        history = get_chat_history_by_user(db, user_id=user_id, limit=limit, skip=skip)
 
-        # Flatten rows into chronological human/AI message pairs
         messages: List[ChatHistoryItem] = []
         for entry in reversed(history):
             messages.append(
-                ChatHistoryItem(
-                    role="human",
-                    content=entry.message,
-                    timestamp=entry.created_at,
-                )
+                ChatHistoryItem(role="human", content=entry.message, timestamp=entry.created_at)
             )
             if entry.ai_response:
                 messages.append(
                     ChatHistoryItem(
-                        role="ai",
-                        content=entry.ai_response,
-                        timestamp=entry.created_at,
+                        role="ai", content=entry.ai_response, timestamp=entry.created_at
                     )
                 )
 
@@ -232,17 +169,12 @@ async def get_chat_history(
             limit,
             skip,
         )
-
         return ChatSessionResponse(user_id=user_id, messages=messages)
 
     except HTTPException:
         raise
     except Exception as exc:
-        logger.exception(
-            "Error retrieving chat history for user %s: %s",
-            user_id,
-            exc,
-        )
+        logger.exception("Error retrieving chat history for user %s: %s", current_user.get("id"), exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve chat history.",
@@ -256,10 +188,71 @@ async def get_chat_history(
     description="Returns the operational status of the AI chatbot service.",
 )
 async def health_check() -> Dict[str, str]:
-    """
-    Check AI service health.
-
-    Returns:
-        Dict[str, str]: Status message indicating service is operational.
-    """
+    """Check AI service health."""
     return {"status": "ok", "service": "Hoku AI Chatbot"}
+
+
+# ---------------------------------------------------------------------------
+# Day 5: RAG endpoints
+# ---------------------------------------------------------------------------
+@router.post(
+    "/rag/seed",
+    status_code=status.HTTP_200_OK,
+    summary="Seed Hoku FAQ Vector Store",
+    description="Triggers seeding of the Hoku Health Care FAQ knowledge base into pgvector.",
+)
+async def seed_rag(db: Session = Depends(get_db)) -> Dict[str, Any]:
+    """
+    Trigger FAQ seeding into the vector store.
+
+    Intended for admin/dev use during setup -- not part of the patient
+    chat flow. Safe to call multiple times (each call adds another copy
+    of the FAQ set unless the collection is cleared first).
+    """
+    from app.scripts.seed_faqs import FAQS
+
+    try:
+        rag = HokuRAG(db=db)
+        rag.create_vector_store()
+        added = rag.add_faq_documents(FAQS)
+        return {"status": "ok", "documents_added": added, "collection": rag.collection_name}
+    except Exception as exc:
+        logger.exception("RAG seeding failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to seed FAQ vector store.",
+        ) from exc
+
+
+@router.get(
+    "/rag/search",
+    status_code=status.HTTP_200_OK,
+    summary="Debug FAQ Similarity Search",
+    description="Runs a raw similarity search against the Hoku FAQ knowledge base (debug/admin use).",
+)
+async def search_rag(
+    q: str = Query(..., min_length=1, description="Query text to search FAQs for"),
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """Debug endpoint: run similarity_search directly and return raw results."""
+    try:
+        rag = HokuRAG(db=db)
+        results = rag.similarity_search(q, k=rag.top_k)
+        return {
+            "query": q,
+            "results": [
+                {
+                    "question": doc.metadata.get("question"),
+                    "answer": doc.metadata.get("answer"),
+                    "category": doc.metadata.get("category"),
+                    "score": doc.metadata.get("score"),
+                }
+                for doc in results
+            ],
+        }
+    except Exception as exc:
+        logger.exception("RAG debug search failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to run similarity search.",
+        ) from exc

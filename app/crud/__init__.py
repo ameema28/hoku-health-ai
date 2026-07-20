@@ -1,5 +1,5 @@
 """Hoku Health Care - CRUD Package."""
-from app.crud.chat import (
+from app.crud.crud_chat import (
     create_chat_history,
     get_chat_history_by_user,
     get_chat_history_count,

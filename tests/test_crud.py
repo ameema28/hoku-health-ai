@@ -13,7 +13,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.core.database import Base
-from app.crud.chat import (
+from app.crud import (
     create_chat_history,
     get_chat_history_by_user,
     get_chat_history_count,

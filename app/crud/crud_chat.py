@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import DatabaseOperationException
-from app.models.chat import ChatHistory
+from app.models.models_chat import ChatHistory
 
 logger = logging.getLogger(__name__)
 

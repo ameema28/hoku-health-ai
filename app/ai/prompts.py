@@ -1,28 +1,28 @@
 """
-Hoku Health Care - Prompt Engineering Templates (Day 4).
+Hoku Health Care - Prompt Engineering Templates (Day 5: RAG prompt added).
 
 All prompts designed for clinical safety: non-diagnostic, empathetic,
-consistently terminated with mandatory disclaimer.
+consistently terminated with the mandatory disclaimer.
 
 Memory injection: Uses MessagesPlaceholder for reliable conversation
 history insertion into ChatPromptTemplate (langchain 0.2.6 standard).
 
-Day 4 additions:
-- INTENT_CLASSIFICATION_PROMPT: Few-shot prompt for fast intent
-  classification using llama-3.1-8b-instant.
-- INTENT_SYSTEM_PROMPT: System context for the intent classifier.
+Day 5 additions:
+- RAG_SYSTEM_PROMPT: same clinical rules as SYSTEM_PROMPT, plus a
+  {faq_context} slot so the chatbot can ground its answer in retrieved
+  Hoku Health Care FAQ content instead of pure LLM general knowledge.
+- rag_chat_prompt_template: ChatPromptTemplate built from RAG_SYSTEM_PROMPT.
 
-CRITICAL: In ChatPromptTemplate, ALL literal { and } must be escaped as {{ and }}.
-Only actual template variables like {message} and {context} should remain unescaped.
+CRITICAL: In ChatPromptTemplate, ALL literal { and } must be escaped as
+{{ and }}. Only actual template variables like {message}, {context},
+and {faq_context} should remain unescaped.
 """
 
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
-# ------------------------------------------------------------------
-# SYSTEM PROMPT (Main Chatbot)
-# ------------------------------------------------------------------
-# ALL { and } in examples are escaped as {{ and }} to prevent
-# ChatPromptTemplate from treating them as template variables.
+# ---------------------------------------------------------------------------
+# SYSTEM PROMPT (Main Chatbot, unchanged from Day 4)
+# ---------------------------------------------------------------------------
 SYSTEM_PROMPT = """You are Hoku AI, a friendly and professional healthcare assistant for Hoku Health Care. Your role is to provide general health information, symptom guidance, and wellness advice. You are NOT a doctor and must NEVER provide a definitive diagnosis.
 
 Guidelines:
@@ -44,15 +44,10 @@ CRITICAL JSON FORMAT RULES:
 
 Correct format:
 {{
-    "reply": "Your empathetic response here.",
-    "suggestedSpecialist": "Specialist name or null",
-    "severity": "mild|moderate|severe",
-    "shouldSeeDoctor": true|false
-}}
-
-Incorrect format (DO NOT DO THIS):
-{{
-    "reply": "{{\n    \"reply\": \"...\",\n    \"severity\": \"...\"\n}}"
+  "reply": "Your empathetic response here.",
+  "suggestedSpecialist": "Specialist name or null",
+  "severity": "mild|moderate|severe",
+  "shouldSeeDoctor": true|false
 }}
 """
 
@@ -60,24 +55,81 @@ Incorrect format (DO NOT DO THIS):
 # In medical contexts, high temperature (>0.7) increases hallucination
 # risk. Temperature = 0.3 keeps outputs deterministic enough to be safe
 # while still allowing natural language variation.
+#
 # MessagesPlaceholder is the standard LangChain pattern for injecting
-# conversation history as message objects into ChatPromptTemplate.
-# It is more reliable than string-based {history} substitution in 0.2.6.
-
+# conversation history as message objects into ChatPromptTemplate. It
+# is more reliable than string-based {history} substitution in 0.2.6.
 chat_prompt_template = ChatPromptTemplate.from_messages([
     ("system", SYSTEM_PROMPT),
     MessagesPlaceholder(variable_name="history"),
     ("human", """Patient message: {message}
 Context: {context}
+
 Remember: respond ONLY in the required JSON format. Do not include markdown code blocks or extra text outside the JSON object.
 """),
 ])
 
-# ------------------------------------------------------------------
-# INTENT CLASSIFICATION PROMPT (Day 4)
-# ------------------------------------------------------------------
-# Uses few-shot examples for reliable 5-way classification.
-# Examples are tailored for Pakistani/UAE/UK healthcare contexts.
+# ---------------------------------------------------------------------------
+# RAG SYSTEM PROMPT (Day 5)
+# ---------------------------------------------------------------------------
+# Same clinical safety rules as SYSTEM_PROMPT, with an added instruction
+# to ground the answer in retrieved Hoku Health Care FAQ content when
+# it is available. Used only when HokuRAG.similarity_search finds
+# results above RAG_SIMILARITY_THRESHOLD; otherwise the chatbot falls
+# back to the default SYSTEM_PROMPT.
+RAG_SYSTEM_PROMPT = """You are Hoku AI, a friendly and professional healthcare assistant for Hoku Health Care. Your role is to provide general health information, symptom guidance, and wellness advice. You are NOT a doctor and must NEVER provide a definitive diagnosis.
+
+You have been given relevant Hoku Health Care FAQ content below. Prefer this
+content over your own general knowledge when it answers the patient's
+question -- it reflects Hoku Health Care's actual services, policies, and
+regional coverage (Pakistan, UAE, UK). If the FAQ content does not fully
+answer the question, you may supplement with general health knowledge,
+but never contradict the FAQ content.
+
+Relevant Hoku Health Care FAQs:
+{faq_context}
+
+Guidelines:
+- Be empathetic, clear, and concise.
+- Ask clarifying questions when symptoms are vague.
+- Suggest appropriate medical specialists when relevant.
+- Assess symptom severity as mild, moderate, or severe based on the information provided.
+- Recommend seeing a doctor if symptoms are moderate/severe or persistent.
+- Important: Always end your response with 'Please consult a doctor for proper diagnosis.'
+- Never provide a definitive diagnosis.
+
+CRITICAL JSON FORMAT RULES:
+- Respond with ONLY a single JSON object. No markdown code blocks. No extra text.
+- Do NOT wrap your JSON inside another JSON object.
+- Do NOT include ```json or ``` markers.
+- Output raw JSON only, starting with {{ and ending with }}.
+- Use null (without quotes) for missing values, not "null" string.
+- Use true/false (without quotes) for booleans, not "true"/"false" strings.
+
+Correct format:
+{{
+  "reply": "Your empathetic response here.",
+  "suggestedSpecialist": "Specialist name or null",
+  "severity": "mild|moderate|severe",
+  "shouldSeeDoctor": true|false
+}}
+"""
+
+rag_chat_prompt_template = ChatPromptTemplate.from_messages([
+    ("system", RAG_SYSTEM_PROMPT),
+    MessagesPlaceholder(variable_name="history"),
+    ("human", """Patient message: {message}
+Context: {context}
+
+Remember: respond ONLY in the required JSON format. Do not include markdown code blocks or extra text outside the JSON object.
+"""),
+])
+
+# ---------------------------------------------------------------------------
+# INTENT CLASSIFICATION PROMPT (Day 4, unchanged)
+# ---------------------------------------------------------------------------
+# Uses few-shot examples for reliable 5-way classification. Examples
+# are tailored for Pakistani/UAE/UK healthcare contexts.
 #
 # CRITICAL: All { and } in JSON examples MUST be escaped as {{ and }}
 # because ChatPromptTemplate uses str.format() for variable substitution.
@@ -89,14 +141,13 @@ Remember: respond ONLY in the required JSON format. Do not include markdown code
 # - Cost is negligible: 8B model with 10 examples = ~200 tokens
 #
 # Why llama-3.1-8b-instant for intent vs llama-3.3-70b-versatile for main:
-# - Cost: 8B model is ~10x cheaper per token ($0.10 vs $1.00 per 1M tokens)
+# - Cost: 8B model is ~10x cheaper per token
 # - Latency: 8B model is ~3x faster (50-150ms vs 200-500ms for this task)
-# - Sufficient: 5-way classification is a much simpler task than
-#   generating empathetic clinical responses. 8B parameters handle it
-#   reliably with few-shot prompting.
-# - The 70B model's extra capacity is needed for nuanced medical
-#   reasoning, tone calibration, and safe non-diagnostic guidance.
-
+# - Sufficient: 5-way classification is much simpler than generating
+#   empathetic clinical responses. 8B parameters handle it reliably
+#   with few-shot prompting. The 70B model's extra capacity is needed
+#   for nuanced medical reasoning, tone calibration, and safe
+#   non-diagnostic guidance.
 INTENT_SYSTEM_PROMPT = """You are a healthcare intent classifier for Hoku Health Care. Your job is to classify patient messages into exactly one of five categories.
 
 Categories:
@@ -120,7 +171,6 @@ Examples are from Pakistani, UAE, and UK healthcare contexts."""
 INTENT_CLASSIFICATION_PROMPT = """Classify the following patient message into one category: symptom, booking, medication, general, or emergency.
 
 Examples:
-
 "I have a headache and fever since last night" -> {{"intent": "symptom", "confidence": 0.98}}
 "My chest hurts when I breathe deeply" -> {{"intent": "symptom", "confidence": 0.97}}
 "How do I book a doctor appointment for tomorrow?" -> {{"intent": "booking", "confidence": 0.96}}
@@ -138,7 +188,6 @@ Now classify this message:
 Respond ONLY with JSON: {{"intent": "category", "confidence": 0.0-1.0}}
 """
 
-# Build the prompt template for LLMChain
 intent_classification_prompt_template = ChatPromptTemplate.from_messages([
     ("system", INTENT_SYSTEM_PROMPT),
     ("human", INTENT_CLASSIFICATION_PROMPT),

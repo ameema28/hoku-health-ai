@@ -9,7 +9,8 @@ Not needed in production (Alembic handles migrations there).
 from app.core.database import Base, engine
 
 # Import all models so they register with Base.metadata
-from app.models.chat import ChatHistory  # noqa: F401
+from app.models.models_chat import ChatHistory  # noqa: F401
+from app.models.vector_store import VectorStore  # noqa: F401  (Day 5)
 
 
 def init_database() -> None:

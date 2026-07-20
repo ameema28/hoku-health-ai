@@ -10,9 +10,10 @@ This module provides the AI-powered health chatbot backend for Hoku Health Care,
 
 - **Framework**: FastAPI (Python)
 - **AI/LLM**: Groq API (Llama 3) via LangChain 0.2.6
-- **Database**: PostgreSQL + SQLAlchemy 2.0 + Alembic
-- **Auth**: JWT (stubbed for AI module setup)
-- **Embeddings**: sentence-transformers (all-MiniLM-L6-v2) — stubbed for RAG
+- **Database**: SQLite (dev) / PostgreSQL (prod) + SQLAlchemy 2.0 + Alembic
+- **Auth**: JWT via `app/core/security.py` (HTTPBearer), stubbed pending Backend Lead (Talha)'s full user-lookup implementation
+- **Embeddings**: sentence-transformers (all-MiniLM-L6-v2), local inference, 384 dims
+- **Vector Store**: pgvector on PostgreSQL in production; falls back to an in-Python cosine-similarity search on SQLite (used automatically in this dev setup)
 
 ---
 
@@ -60,50 +61,92 @@ TIKTOKEN_ENABLED=false
 
 # Intent Classification
 INTENT_MODEL=llama-3.1-8b-instant
-INTENT_CLASSIFICATION_TIMEOUT=0.5
+INTENT_CLASSIFICATION_TIMEOUT=1.5
 INTENT_CONFIDENCE_THRESHOLD=0.7
+
+# RAG Pipeline (Day 5)
+EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
+VECTOR_DIMENSION=384
+RAG_SIMILARITY_THRESHOLD=0.75
+RAG_TOP_K=3
+COLLECTION_NAME=hoku_health_faqs
+RAG_LOOKUP_TIMEOUT=0.5
 ```
 
-**For local development without PostgreSQL**, change `DATABASE_URL` in `.env`:
+**For local development without PostgreSQL** (default in this environment):
 
 ```bash
 DATABASE_URL=sqlite:///./hoku_health.db
 ```
 
-### 4. Run Tests
+### 4. Initialize the Database
+
+```bash
+python init_db.py
+```
+
+Creates `chat_history` and `vector_store` (Day 5) tables. On SQLite, `vector_store.embedding` is a JSON column; on PostgreSQL with pgvector installed, it's a native `vector(384)` column — the model detects this automatically from `DATABASE_URL`.
+
+### 5. Seed the FAQ Knowledge Base (Day 5)
+
+```bash
+python -m app.scripts.seed_faqs
+```
+
+Downloads the embedding model on first run (~90MB, requires internet) and loads 20 FAQ entries covering Hoku's Pakistan/UAE/UK home healthcare services into `hoku_health_faqs`. Re-runnable via `POST /api/ai/rag/seed`, but note it is **not idempotent** — re-running adds a second copy of the FAQ set rather than skipping duplicates.
+
+### 6. Generate a Test JWT
+
+Authenticated endpoints (`/api/ai/chat`, `/api/ai/chat/history`) require a Bearer token. Use `token_gen.py` to generate one for local testing:
+
+```bash
+python token_gen.py
+```
+
+Prints ready-to-use `Bearer <token>` strings for user IDs 1 and 2, each valid for 2 hours.
+
+### 7. Run Tests
 
 ```bash
 # Unit tests (mocked Groq — no API key needed)
 pytest tests/test_chatbot.py -v
 pytest tests/test_memory.py -v
 pytest tests/test_intent.py -v
+pytest tests/test_crud.py -v
+
+# RAG pipeline tests (Day 5 — pgvector interactions mocked, since SQLite has no pgvector)
+pytest tests/test_rag.py -v
 
 # Full test suite
 pytest tests/ -v
 ```
 
-### 5. Run the Server
+### 8. Run the Server
 
 ```bash
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### 6. API Documentation
+### 9. API Documentation
 
 Once running, open your browser:
 
 - **Swagger UI**: [http://localhost:8000/docs](http://localhost:8000/docs)
 - **ReDoc**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
 
+To test authenticated endpoints in Swagger: generate a token with `token_gen.py`, click **Authorize** in the top-right of `/docs`, and paste the token into the Bearer field.
+
 ---
 
 ## AI Endpoints
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/ai/chat` | AI Health Chatbot (Groq LLM + Memory + Intent) |
-| GET | `/api/ai/chat/history` | Chat History (paginated) |
-| GET | `/api/ai/health` | Service Health Check |
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/api/ai/chat` | Yes | AI Health Chatbot (Groq LLM + Memory + Intent + RAG) |
+| GET | `/api/ai/chat/history` | Yes | Chat History (paginated) |
+| GET | `/api/ai/health` | No | Service Health Check |
+| POST | `/api/ai/rag/seed` | No | Seed the Hoku FAQ vector store (Day 5, admin/dev use) |
+| GET | `/api/ai/rag/search?q={query}` | No | Debug FAQ similarity search (Day 5, admin/dev use) |
 
 ---
 
@@ -112,68 +155,76 @@ Once running, open your browser:
 ```
 hoku-health-backend/
 ├── alembic/              # Database migrations
+│   ├── env.py
 │   └── versions/
 │       ├── 001_create_chat_history.py
-│       └── 002_add_intent_index.py
+│       ├── 002_add_intent_index.py
+│       └── 003_add_vector_store.py    # Day 5: pgvector-aware, SQLite-safe
 ├── app/
 │   ├── ai/               # Chatbot engine (Groq + LangChain)
 │   │   ├── __init__.py
-│   │   ├── config.py     # AI hyperparameters, timeouts, memory settings
-│   │   ├── prompts.py    # Clinical safety + intent classification prompts
-│   │   ├── chatbot.py    # HokuChatbot class (intent + emergency)
+│   │   ├── config.py     # AI hyperparameters, timeouts, memory, RAG_LOOKUP_TIMEOUT
+│   │   ├── prompts.py    # Clinical safety + intent + RAG-grounded prompts
+│   │   ├── chatbot.py    # HokuChatbot: intent + emergency + bounded RAG lookup
 │   │   ├── intent_classifier.py  # 5-way intent classification
 │   │   ├── emergency_detector.py # Regex-based emergency detection
 │   │   ├── memory.py     # Per-user ConversationBufferMemory loader
 │   │   ├── token_budget.py # Token counting & history trimming
+│   │   ├── embeddings.py  # Day 5: local sentence-transformers embedding manager
+│   │   ├── rag.py         # Day 5: HokuRAG similarity search + context builder
 │   │   └── utils.py      # Response parsers
-│   ├── api/              # API routers
-│   │   └── v1/
-│   │       └── endpoints/
-│   │           ├── __init__.py
-│   │           └── ai.py
-│   ├── core/             # Config, DB, security, middleware
+│   ├── api/v1/endpoints/
 │   │   ├── __init__.py
-│   │   ├── config.py
-│   │   ├── database.py
-│   │   ├── dependencies.py
-│   │   ├── exceptions.py
-│   │   ├── middleware.py # Request timing & NFR monitoring
-│   │   └── security.py
-│   ├── crud/             # Database access layer
+│   │   └── ai.py          # + /api/ai/rag/seed, /api/ai/rag/search (Day 5)
+│   ├── core/
 │   │   ├── __init__.py
-│   │   └── chat.py
-│   ├── middleware/       # CORS & error handlers
+│   │   ├── config.py       # + VECTOR_DIMENSION, RAG_SIMILARITY_THRESHOLD, RAG_TOP_K, COLLECTION_NAME
+│   │   ├── database.py     # engine, SessionLocal, Base, get_db
+│   │   ├── dependencies.py # re-exports get_db, get_current_user
+│   │   ├── exceptions.py   # UserNotFoundException, DatabaseOperationException
+│   │   ├── middleware.py   # Request timing & NFR-02 monitoring
+│   │   └── security.py     # JWT auth (HTTPBearer stub, pending Talha)
+│   ├── crud/
+│   │   ├── __init__.py     # re-exports app.crud.crud_chat
+│   │   └── crud_chat.py
+│   ├── middleware/
 │   │   ├── __init__.py
 │   │   ├── cors.py
 │   │   └── error_handler.py
-│   ├── models/           # SQLAlchemy models
+│   ├── models/
+│   │   ├── __init__.py
+│   │   ├── models_chat.py
+│   │   └── vector_store.py  # Day 5: FAQ embedding table (JSON on SQLite, vector on Postgres)
+│   ├── schemas/
 │   │   ├── __init__.py
 │   │   └── chat.py
-│   ├── schemas/          # Pydantic schemas
+│   ├── scripts/             # Day 5
 │   │   ├── __init__.py
-│   │   └── chat.py
-│   ├── services/         # Business logic layer
+│   │   └── seed_faqs.py     # Seeds 20 Hoku FAQ entries
+│   ├── services/
 │   │   ├── __init__.py
 │   │   └── ai_service.py
-│   ├── utils/            # Constants & validators
+│   ├── utils/
 │   │   ├── __init__.py
 │   │   ├── constants.py
 │   │   └── validators.py
 │   ├── __init__.py
-│   └── main.py           # FastAPI application entry point
+│   └── main.py
 ├── tests/
 │   ├── __init__.py
-│   ├── conftest.py       # Pytest fixtures
-│   ├── test_chatbot.py   # Unit tests (mocked Groq)
-│   ├── test_memory.py    # Memory & token budget tests
-│   ├── test_intent.py    # Intent classification tests
-│   └── test_crud.py      # CRUD verification
+│   ├── conftest.py         # DB + client fixtures, mock intent/emergency fixtures
+│   ├── test_chatbot.py
+│   ├── test_crud.py
+│   ├── test_intent.py
+│   ├── test_memory.py
+│   └── test_rag.py          # Day 5: embedding + RAG pipeline tests
 ├── .env.example
 ├── .gitignore
 ├── alembic.ini
-├── hoku_health.db        # SQLite database (auto-generated, do not commit)
-├── init_db.py
-├── pytest.ini            # Pytest configuration
+├── hoku_health.db           # SQLite database (auto-generated, do not commit)
+├── init_db.py               # + registers vector_store with Base.metadata (Day 5)
+├── token_gen.py             # Generates test JWTs for local Swagger/curl testing
+├── pytest.ini
 ├── requirements.txt
 └── README.md
 ```
@@ -194,7 +245,7 @@ hoku-health-backend/
 
 - **SQLAlchemy 2.0** `ChatHistory` model with `mapped_column` syntax
 - Composite indexes on `user_id` and `created_at` for fast lookups
-- **CRUD layer** (`app/crud/chat.py`) with atomic transactions and logging
+- **CRUD layer** with atomic transactions and logging
 - **GET /api/ai/chat/history** endpoint with pagination (`limit`, `skip`)
 - **Custom exceptions**: `UserNotFoundException`, `DatabaseOperationException`
 - **Input validators**: `sanitize_message`, `validate_message_length`
@@ -226,14 +277,31 @@ hoku-health-backend/
 ### Day 4: Intent Recognition & Query Classification
 
 - **5-way intent classification**: `symptom`, `booking`, `medication`, `general`, `emergency`
-- **IntentClassifier** (`app/ai/intent_classifier.py`) using `llama-3.1-8b-instant` via LLMChain with few-shot prompting
-- **EmergencyDetector** (`app/ai/emergency_detector.py`) — regex-based O(1) keyword matching, sub-50ms, bypasses LLM entirely
+- **IntentClassifier** using `llama-3.1-8b-instant` via LLMChain with few-shot prompting
+- **EmergencyDetector** — regex-based O(1) keyword matching, sub-50ms, bypasses LLM entirely
 - **Intent-aware prompt augmentation** — symptom, booking, medication contexts injected into system prompt
 - **Confidence threshold gating** — scores < 0.7 fall back to `GENERAL` for safety
 - **Intent persistence** — classified intent stored in `chat_history.intent` column with DB index
 - **Emergency HTTP header** — `X-Hoku-Emergency: true` added to API response when emergency detected
 - **Few-shot examples** tailored for Pakistani/UAE/UK healthcare contexts
-- **70 total unit tests** passing (chatbot, memory, intent)
+- **70 unit tests** passing (chatbot, memory, intent)
+
+### Day 5: RAG Pipeline — Health FAQ Vector Store
+
+Retrieval-Augmented Generation so the chatbot answers from Hoku Health Care's own FAQ and services instead of relying solely on LLM general knowledge.
+
+- **`EmbeddingManager`** (`app/ai/embeddings.py`) — local `sentence-transformers/all-MiniLM-L6-v2` embeddings (384 dims, no API key, MIT license), with `get_embedding`, `batch_embed`, and async-safe wrappers via `asyncio.to_thread`
+- **Offline/model-load fallback** — if the embedding model can't be loaded (no internet, no cached files), logs a `WARNING` and returns zero-vectors rather than crashing; RAG lookups simply never clear the similarity threshold in that case
+- **`HokuRAG`** (`app/ai/rag.py`) — `create_vector_store`, `add_faq_documents`, `similarity_search`, and `build_context`, backed by the `vector_store` table
+- **pgvector on Postgres, cosine-similarity fallback on SQLite** — uses PostgreSQL's `pgvector` extension directly (cosine-distance operator) when available; automatically falls back to an in-Python cosine-similarity scan on SQLite (the path exercised in this dev environment)
+- **Similarity threshold 0.75** — below this, `build_context` returns `""` and the chatbot falls back to general LLM knowledge rather than grounding on a loosely related FAQ
+- **Intent-aware RAG routing** — RAG only runs for `GENERAL`/`SYMPTOM` intents; `BOOKING`/`MEDICATION` skip it, `EMERGENCY` bypasses RAG (and the LLM) entirely
+- **Bounded RAG latency** — RAG lookup runs under its own `RAG_LOOKUP_TIMEOUT` (default 0.5s) via `asyncio.wait_for`; on timeout or any exception, RAG is skipped and the chatbot proceeds with the default (non-RAG) prompt rather than risk breaching the 4s NFR-02 ceiling
+- **`RAG_SYSTEM_PROMPT`** (`app/ai/prompts.py`) — same clinical safety rules as the default prompt, plus a `{faq_context}` slot; the default `SYSTEM_PROMPT` is unchanged and still used when no FAQ match clears the threshold
+- **20 realistic FAQ entries** (`app/scripts/seed_faqs.py`) covering Hoku's Pakistan/UAE/UK services, booking, medication, general, and emergency-boundary categories
+- **New endpoints**: `POST /api/ai/rag/seed`, `GET /api/ai/rag/search?q={query}` (debug similarity search)
+- **Clean interpreter shutdown** — `HokuRAG.__del__` skips closing its DB session if the logging subsystem has already begun shutting down, avoiding noisy "I/O operation on closed file" errors at process exit
+- **77 total unit tests** passing (chatbot, memory, intent, crud, RAG — pgvector interactions mocked since SQLite has no pgvector extension)
 
 ---
 
@@ -250,24 +318,30 @@ The chatbot never provides definitive diagnoses. Temperature is set to **0.3** t
 - Intent classification failures gracefully fall back to `GENERAL` — never crash the chat flow
 - Low-confidence classifications (< 0.7) default to `GENERAL` to avoid misrouting
 
+**Day 5 Safety Enhancements:**
+- Emergency detection still runs first and bypasses RAG entirely, same as it bypasses the LLM
+- RAG-grounded replies use the exact same non-diagnostic clinical prompt rules and mandatory disclaimer as non-RAG replies — FAQ content only supplements, never overrides, clinical safety guidance
+- A weak, missing, or timed-out FAQ match never blocks a response — the chatbot silently falls back to general knowledge
+
 ---
 
 ## Performance (NFR-02)
 
 - **Target**: < 4 seconds per chat request
 - **Hard timeout**: 3.5 seconds (fallback triggers automatically)
-- **Intent classification**: < 500ms (llama-3.1-8b-instant, 10x cheaper than 70B)
+- **Intent classification**: 1.5s budget (llama-3.1-8b-instant, 10x cheaper than 70B)
 - **Emergency detection**: < 50ms (pure Python regex, no LLM)
+- **RAG lookup**: bounded at 0.5s (`RAG_LOOKUP_TIMEOUT`) via `asyncio.wait_for`; on timeout, skipped entirely rather than risking a downstream NFR-02 breach
 - **Max tokens**: 512 (keeps responses concise)
 - **Memory limit**: 10 turns (keeps token budget and latency in check)
-- **Monitoring**: Timing middleware logs latency and alerts on breaches
+- **Monitoring**: Timing middleware logs latency and alerts on breaches (watch for `NFR-02 BREACH` in server logs)
 
 ---
 
 ## Environment Variables Reference
 
 | Variable | Default | Description |
-|----------|---------|-------------|
+|----------|---------|--------------|
 | `GROQ_API_KEY` | — | Groq API key (required) |
 | `GROQ_FAST_MODEL` | `llama-3.1-8b-instant` | Fast model for intent classification |
 | `GROQ_MAIN_MODEL` | `llama-3.3-70b-versatile` | Main model for patient responses |
@@ -280,8 +354,14 @@ The chatbot never provides definitive diagnoses. Temperature is set to **0.3** t
 | `MEMORY_MAX_TOKENS` | `307` | Token budget for history |
 | `TIKTOKEN_ENABLED` | `true` | Use tiktoken for token counting |
 | `INTENT_MODEL` | `llama-3.1-8b-instant` | Model for intent classification |
-| `INTENT_CLASSIFICATION_TIMEOUT` | `0.5` | Max time for intent classification |
+| `INTENT_CLASSIFICATION_TIMEOUT` | `1.5` | Max time for intent classification |
 | `INTENT_CONFIDENCE_THRESHOLD` | `0.7` | Minimum confidence to accept intent |
+| `EMBEDDING_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | Local embedding model for RAG (Day 5) |
+| `VECTOR_DIMENSION` | `384` | Embedding vector dimension (Day 5) |
+| `RAG_SIMILARITY_THRESHOLD` | `0.75` | Minimum similarity to use a FAQ match (Day 5) |
+| `RAG_TOP_K` | `3` | Number of FAQ matches retrieved per query (Day 5) |
+| `COLLECTION_NAME` | `hoku_health_faqs` | pgvector/vector_store collection name (Day 5) |
+| `RAG_LOOKUP_TIMEOUT` | `0.5` | Max seconds allotted to RAG lookup before skipping it (Day 5) |
 
 ---
 

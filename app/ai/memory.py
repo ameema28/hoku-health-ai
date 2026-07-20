@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.ai.config import ai_settings
 from app.ai.token_budget import trim_history_to_budget
-from app.crud.chat import create_chat_history, get_recent_chat_history
+from app.crud import create_chat_history, get_recent_chat_history
 
 logger = logging.getLogger(__name__)
 
