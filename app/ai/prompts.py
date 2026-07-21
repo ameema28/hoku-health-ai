@@ -1,5 +1,5 @@
 """
-Hoku Health Care - Prompt Engineering Templates (Day 6: Specialist prompt added).
+Hoku Health Care - Prompt Engineering Templates (Day 7: Safety prompts added).
 
 All prompts designed for clinical safety: non-diagnostic, empathetic,
 consistently terminated with the mandatory disclaimer.
@@ -14,6 +14,11 @@ Day 5 additions:
 Day 6 additions:
 - SPECIALIST_SUGGESTION_PROMPT: Instructs the LLM to incorporate a
   specific doctor suggestion into its empathetic response when provided.
+
+Day 7 additions:
+- SAFETY_SYSTEM_APPENDIX: Mandatory system prompt clause forbidding
+  diagnosis and prescription.
+- EMERGENCY_PROMPT: Immediate urgent care instructions prompt.
 """
 
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -111,11 +116,8 @@ Remember: respond ONLY in the required JSON format. Do not include markdown code
 ])
 
 # ---------------------------------------------------------------------------
-# SPECIALIST SUGGESTION PROMPT (Day 6)
+# SPECIALIST SUGGESTION PROMPT (Day 6, unchanged)
 # ---------------------------------------------------------------------------
-# Used when a specific doctor has been matched to the patient's symptoms.
-# Injected into the system context to guide the LLM to mention the
-# suggested doctor naturally within its empathetic response.
 SPECIALIST_SUGGESTION_PROMPT = """A specific doctor has been identified for the patient based on their symptoms:
 
 - Specialist: {specialist}
@@ -176,3 +178,39 @@ intent_classification_prompt_template = ChatPromptTemplate.from_messages([
     ("system", INTENT_SYSTEM_PROMPT),
     ("human", INTENT_CLASSIFICATION_PROMPT),
 ])
+
+# ---------------------------------------------------------------------------
+# DAY 7: SAFETY SYSTEM APPENDIX (New)
+# ---------------------------------------------------------------------------
+# Appended to all system prompts to reinforce clinical safety boundaries.
+# This is injected as an additional system message or appended to the
+# existing system prompt when safety mode is active.
+SAFETY_SYSTEM_APPENDIX = """
+
+ADDITIONAL SAFETY INSTRUCTIONS (MANDATORY):
+- You must NEVER provide a definitive diagnosis (e.g., "you have pneumonia").
+- You must NEVER prescribe medication or recommend specific dosages.
+- You must NEVER tell a patient to start, stop, or change any medication.
+- You must ALWAYS include the disclaimer: "Please consult a doctor for proper diagnosis."
+- If you are unsure about any medical information, direct the patient to consult a doctor.
+- You are an informational assistant only — not a substitute for professional medical advice.
+"""
+
+# ---------------------------------------------------------------------------
+# DAY 7: EMERGENCY PROMPT (New)
+# ---------------------------------------------------------------------------
+# Used when the EmergencyDetector triggers an emergency response.
+# Instructs the LLM (if used in Tier 2) to provide immediate urgent care guidance.
+EMERGENCY_PROMPT = """You are an emergency triage assistant for Hoku Health Care.
+
+CRITICAL INSTRUCTIONS:
+- This message indicates a potential medical EMERGENCY.
+- Emphasize the need for IMMEDIATE professional medical attention.
+- Provide the correct emergency contact numbers for the patient's region:
+  • Pakistan: 1122 (Rescue 1122) or 15 (Police Emergency)
+  • UAE: 998 (Ambulance) or 999 (Police)
+  • UK: 999 (Emergency) or 111 (NHS Non-emergency)
+- Do NOT attempt to diagnose — direct to emergency services immediately.
+- Keep the response brief, urgent, and actionable.
+- Always include: "Please consult a doctor for proper diagnosis."
+"""

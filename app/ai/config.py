@@ -1,5 +1,5 @@
 """
-Hoku Health Care - AI Configuration Module (Day 6).
+Hoku Health Care - AI Configuration Module (Day 7).
 
 Centralizes all AI/LLM hyperparameters, timeouts, and retry policies.
 All values are tuned for clinical safety and the <4s response NFR.
@@ -10,6 +10,11 @@ Day 4 additions:
 Day 6 additions:
 - Symptom extraction settings (timeout, model)
 - Doctor lookup limit
+
+Day 7 additions:
+- Emergency check timeout (Tier 2 LLM fallback)
+- Safety max retries (3-strike mechanism)
+- Safety fallback response (hardcoded safe message)
 """
 
 import logging
@@ -83,7 +88,7 @@ class AISettings(BaseSettings):
     # Symptom Extraction & Doctor Lookup (Day 6)
     # ------------------------------------------------------------------
     # Timeout for LLM-based symptom extraction fallback (0.2s hard limit).
-    # If exceeded, defaults to ["fever"] → General Physician to protect NFR-02.
+    # If exceeded, defaults to ["fever"] -> General Physician to protect NFR-02.
     SYMPTOM_EXTRACTION_TIMEOUT: float = 0.2
 
     # Model for LLM-based symptom extraction fallback.
@@ -91,6 +96,24 @@ class AISettings(BaseSettings):
 
     # Maximum number of doctors to return in a specialist lookup.
     DOCTOR_LOOKUP_LIMIT: int = 5
+
+    # ------------------------------------------------------------------
+    # Emergency Detection & Safety Guardrails (Day 7)
+    # ------------------------------------------------------------------
+    # Timeout for Tier 2 LLM emergency check (ambiguous edge cases).
+    # Tier 1 regex runs in <50ms regardless; this is only for fallback.
+    EMERGENCY_CHECK_TIMEOUT: float = 0.3
+
+    # Maximum safety retry attempts before returning hardcoded fallback.
+    # Each retry sanitizes the response and re-validates.
+    SAFETY_MAX_RETRIES: int = 3
+
+    # Hardcoded safe fallback response when all safety retries fail.
+    # This is the absolute last resort — never returns unsafe content.
+    SAFETY_FALLBACK_RESPONSE: str = (
+        "I am unable to provide a medical opinion for this query. "
+        "Please consult a qualified doctor immediately."
+    )
 
     @property
     def groq_api_key(self) -> str:
@@ -110,7 +133,8 @@ def get_ai_settings() -> AISettings:
         "AI settings loaded: model=%s, temp=%.1f, max_tokens=%d, timeout=%.1fs, "
         "memory_limit=%d, memory_tokens=%d, intent_model=%s, "
         "intent_timeout=%.2fs, intent_threshold=%.2f, "
-        "symptom_timeout=%.2fs, doctor_limit=%d",
+        "symptom_timeout=%.2fs, doctor_limit=%d, "
+        "emergency_timeout=%.2fs, safety_retries=%d",
         ai_settings.GROQ_MAIN_MODEL,
         ai_settings.TEMPERATURE,
         ai_settings.MAX_TOKENS,
@@ -122,6 +146,8 @@ def get_ai_settings() -> AISettings:
         ai_settings.INTENT_CONFIDENCE_THRESHOLD,
         ai_settings.SYMPTOM_EXTRACTION_TIMEOUT,
         ai_settings.DOCTOR_LOOKUP_LIMIT,
+        ai_settings.EMERGENCY_CHECK_TIMEOUT,
+        ai_settings.SAFETY_MAX_RETRIES,
     )
     return ai_settings
 

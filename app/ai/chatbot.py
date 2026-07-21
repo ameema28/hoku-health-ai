@@ -1,18 +1,19 @@
 """
-Hoku Health Care - AI Chatbot Engine (Day 6: Specialist suggestion & doctor integration).
+Hoku Health Care - AI Chatbot Engine (Day 7: Emergency Escalation & Safety Guardrails).
 
 Core chatbot logic using Groq LLMs via LangChain 0.2.6 with per-user
 conversation memory, intent classification, emergency detection, RAG,
-and (Day 6) symptom-to-specialist mapping with doctor suggestions.
+specialist/doctor suggestion, and (Day 7) post-LLM safety verification.
 
 Flow:
-1. Emergency detection (regex, <50ms) -- bypasses LLM/RAG if emergency
+1. Emergency detection (Tier 1 regex <50ms, Tier 2 LLM 0.3s fallback)
 2. Intent classification (llama-3.1-8b-instant, <500ms)
 3. RAG lookup (Day 5): for GENERAL/SYMPTOM intents only
 4. Symptom extraction + specialist mapping + doctor lookup (Day 6)
 5. Intent-aware system prompt augmentation
 6. Main LLM response generation (llama-3.3-70b-versatile)
-7. Persistence with intent metadata
+7. Post-LLM Safety Verification (Day 7): 3-strike safety retry loop
+8. Persistence with intent metadata
 """
 
 import asyncio
@@ -37,13 +38,15 @@ except ImportError as _import_exc:
     logging.getLogger(__name__).warning("LangChain/Groq not installed: %s", _import_exc)
 
 from app.ai.config import ai_settings
-from app.ai.emergency_detector import detect_emergency, get_emergency_response
+from app.ai.emergency_detector import EmergencyDetector
 from app.ai.intent_classifier import IntentClassifier, IntentEnum
 from app.ai.memory import HokuConversationMemory
 from app.ai.prompts import chat_prompt_template, rag_chat_prompt_template
 from app.ai.rag import HokuRAG
+from app.ai.safety_guardrails import SafetyGuardrails
 from app.ai.specialist_mapper import SpecialistMapper
 from app.ai.symptom_extractor import extract_symptoms_from_text
+from app.core.monitoring import get_metrics
 from app.crud.crud_doctor import get_doctor_availability
 from app.schemas.schemas_doctor import DoctorAvailability as DoctorAvailabilitySchema, DoctorSuggestion
 from app.utils.constants import SAFETY_DISCLAIMER
@@ -67,10 +70,11 @@ class HokuChatbot:
 
     Day 5 addition: Lazily-initialized HokuRAG instance.
     Day 6 addition: SpecialistMapper for symptom-to-doctor routing.
+    Day 7 addition: SafetyGuardrails for post-LLM clinical safety verification.
     """
 
     def __init__(self) -> None:
-        """Initialize with lazy-loaded Groq clients, intent classifier, RAG, and specialist mapper."""
+        """Initialize with lazy-loaded Groq clients, intent classifier, RAG, specialist mapper, and safety guardrails."""
         self.groq_api_key = ai_settings.groq_api_key
         self.fast_model = ai_settings.GROQ_FAST_MODEL
         self.main_model = ai_settings.GROQ_MAIN_MODEL
@@ -277,34 +281,64 @@ class HokuChatbot:
     ) -> Dict[str, Any]:
         """
         Generate chatbot response with intent classification, emergency
-        detection, RAG retrieval, specialist suggestion, timeout, fallback,
-        and memory.
+        detection, RAG retrieval, specialist suggestion, safety guardrails,
+        timeout, fallback, and memory.
 
         Steps:
-        1. Emergency detection on RAW message (regex, <50ms)
+        1. Emergency detection on RAW message (Tier 1 regex <50ms, Tier 2 optional)
         2. Intent classification on sanitized message (async, <500ms)
         3. RAG lookup for GENERAL/SYMPTOM intents (Day 5)
         4. Specialist suggestion for SYMPTOM/GENERAL intents (Day 6)
         5. Build intent-aware context
         6. Load conversation memory from DB
         7. Generate response with main LLM
-        8. Return with intent, confidence, and doctor_suggestion metadata
+        8. Post-LLM Safety Verification (Day 7): 3-strike safety retry
+        9. Return with intent, confidence, and doctor_suggestion metadata
         """
         start_time = time.perf_counter()
         logger.info("Processing chat for user_id=%s", user_id)
+        metrics = get_metrics()
+        metrics.increment_request("/api/ai/chat")
 
         message_for_emergency = raw_message if raw_message is not None else message
 
         # ---------------------------------------------------------------
-        # Step 1: Emergency Detection (SAFETY CRITICAL -- runs FIRST)
+        # Step 1: Emergency Detection (SAFETY CRITICAL — runs FIRST)
+        # Day 7: Uses EmergencyDetector with tiered urgency levels
         # ---------------------------------------------------------------
-        if detect_emergency(message_for_emergency):
-            logger.critical("Emergency detected for user_id=%s -- bypassing LLM/RAG", user_id)
-            emergency_response = get_emergency_response()
+        is_emergency, urgency, reason = EmergencyDetector.detect_emergency(message_for_emergency)
+        if is_emergency:
+            logger.critical(
+                "Emergency detected for user_id=%s (urgency=%s, reason=%s) — bypassing LLM/RAG",
+                user_id,
+                urgency,
+                reason,
+            )
+            metrics.increment_emergency_detection()
+
+            # Log safety violation for emergency trigger
+            try:
+                from app.crud.crud_safety import log_safety_violation
+                log_safety_violation(
+                    db=db,
+                    user_id=user_id,
+                    message=message_for_emergency[:1000],
+                    ai_response="[emergency bypass — LLM/RAG skipped]",
+                    violation_type="emergency_triggered",
+                    severity="high",
+                )
+            except Exception as log_exc:
+                logger.warning("Failed to log emergency safety event: %s", log_exc)
+
+            emergency_response = EmergencyDetector.get_urgency_response(urgency)
             elapsed = time.perf_counter() - start_time
             logger.info(
-                "Emergency response returned in %.3fs for user_id=%s", elapsed, user_id
+                "Emergency response (urgency=%s) returned in %.3fs for user_id=%s",
+                urgency,
+                elapsed,
+                user_id,
             )
+            metrics.record_latency("/api/ai/chat", elapsed)
             return emergency_response
 
         # ---------------------------------------------------------------
@@ -447,6 +481,34 @@ class HokuChatbot:
                 reply = f"{reply} {SAFETY_DISCLAIMER}"
             parsed["reply"] = reply
 
+            # -------------------------------------------------------
+            # Step 9: Post-LLM Safety Verification (Day 7)
+            # 3-Strike Safety Retry Loop
+            # -------------------------------------------------------
+            safety_start = time.perf_counter()
+            safe_reply, safety_violations, safety_severity = SafetyGuardrails.apply_3_strike_safety(
+                text=parsed.get("reply", ""),
+                user_id=user_id,
+                db=db,
+            )
+            safety_elapsed = time.perf_counter() - safety_start
+
+            if safety_violations:
+                metrics.increment_safety_violation(safety_violations[0])
+                logger.warning(
+                    "Safety violations for user_id=%s: %s (severity=%s, elapsed=%.3fs)",
+                    user_id,
+                    safety_violations,
+                    safety_severity,
+                    safety_elapsed,
+                )
+
+            if safety_severity == "high":
+                metrics.increment_3_strike_fallback()
+
+            # Use the safety-processed reply
+            parsed["reply"] = safe_reply
+
             response: Dict[str, Any] = {
                 "reply": parsed.get("reply", self._fallback_response()["reply"]),
                 "suggestedSpecialist": parsed.get("suggestedSpecialist"),
@@ -456,11 +518,17 @@ class HokuChatbot:
                 "confidence": confidence,
                 "doctor_suggestion": doctor_suggestion.model_dump() if doctor_suggestion else None,
             }
+
+            # Record final latency
+            total_elapsed = time.perf_counter() - start_time
+            metrics.record_latency("/api/ai/chat", total_elapsed)
+
             return response
 
         except asyncio.TimeoutError:
             elapsed = time.perf_counter() - start_time
             logger.warning("Groq timeout after %.3fs for user_id=%s", elapsed, user_id)
+            metrics.record_latency("/api/ai/chat", elapsed)
             fallback = self._fallback_response("timeout")
             fallback["intent"] = intent.value
             fallback["confidence"] = confidence
@@ -470,6 +538,7 @@ class HokuChatbot:
         except Exception as exc:
             elapsed = time.perf_counter() - start_time
             logger.exception("Groq error after %.3fs for user_id=%s: %s", elapsed, user_id, exc)
+            metrics.record_latency("/api/ai/chat", elapsed)
             fallback = self._fallback_response(str(exc))
             fallback["intent"] = intent.value
             fallback["confidence"] = confidence

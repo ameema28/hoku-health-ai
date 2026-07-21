@@ -1,12 +1,13 @@
 """
-Hoku Health Care - AI Chatbot API Endpoints (Day 6: Doctor integration).
+Hoku Health Care - AI Chatbot API Endpoints (Day 7: Emergency escalation & safety headers).
 
 FastAPI router exposing the AI chatbot, chat history, RAG debug/seed
-endpoints, and new doctor lookup endpoints.
+endpoints, doctor lookup endpoints, and safety monitoring.
 
-Day 6 additions:
-- GET /api/ai/doctors?specialty={specialty} -- list available doctors by specialty
-- GET /api/ai/doctors/{doctor_id}/availability -- get a doctor's schedule
+Day 7 additions:
+- Enhanced emergency header handling with severity metadata
+- Safety monitoring endpoint for metrics
+- X-Hoku-Emergency header includes urgency level
 """
 
 import logging
@@ -19,9 +20,10 @@ from sqlalchemy.orm import Session
 from app.ai.rag import HokuRAG
 from app.ai.specialist_mapper import SpecialistMapper
 from app.ai.symptom_extractor import extract_symptoms_from_text
-from app.crud.crud_doctor import get_doctor_availability, get_doctors_by_specialty
 from app.core.dependencies import get_current_user, get_db
 from app.core.exceptions import UserNotFoundException
+from app.core.monitoring import get_metrics
+from app.crud.crud_doctor import get_doctor_availability, get_doctors_by_specialty
 from app.crud import get_chat_history_by_user, user_exists
 from app.schemas.schemas_chat import (
     ChatHistoryItem,
@@ -46,7 +48,8 @@ router = APIRouter(prefix="/api/ai", tags=["AI Chatbot"])
     description=(
         "Send a health question to Hoku AI and receive a safe, non-diagnostic "
         "response, grounded in Hoku Health Care's FAQ knowledge base when relevant. "
-        "Day 6: Responses may include a doctor suggestion for symptom/general queries."
+        "Day 6: Responses may include a doctor suggestion for symptom/general queries. "
+        "Day 7: Emergency detection triggers immediate safety escalation."
     ),
 )
 async def chat(
@@ -62,11 +65,11 @@ async def chat(
     1. Validate user identity and existence.
     2. Sanitize and validate the incoming message.
     3. Generate AI response via Groq LLM with conversation memory,
-       intent classification, RAG-grounded FAQ retrieval, and (Day 6)
-       doctor suggestion for symptom/general intents.
+       intent classification, RAG-grounded FAQ retrieval, doctor
+       suggestion (Day 6), and post-LLM safety verification (Day 7).
     4. Persist the conversation turn via the CRUD layer with intent.
     5. Return the response with clinical metadata, intent, and doctor suggestion.
-    6. Add X-Hoku-Emergency header if emergency was detected.
+    6. Add X-Hoku-Emergency header if emergency was detected (Day 7 enhanced).
     """
     request_start = time.perf_counter()
     try:
@@ -116,9 +119,21 @@ async def chat(
                 total_elapsed,
             )
 
+        # Day 7: Enhanced emergency header handling
         if result.get("intent") == "emergency" and result.get("confidence", 0.0) >= 0.99:
             response.headers["X-Hoku-Emergency"] = "true"
-            logger.critical("X-Hoku-Emergency header set for user_id=%s", request.userId)
+            # Day 7: Add urgency level header for frontend routing
+            severity = result.get("severity", "severe")
+            response.headers["X-Hoku-Emergency-Severity"] = severity
+            logger.critical(
+                "X-Hoku-Emergency headers set for user_id=%s (severity=%s)",
+                request.userId,
+                severity,
+            )
+
+            # Force severity to severe for all emergency responses
+            result["severity"] = "severe"
+            result["shouldSeeDoctor"] = True
 
         return ChatMessageResponse(**result)
 
@@ -196,7 +211,7 @@ async def health_check() -> Dict[str, str]:
 
 
 # ---------------------------------------------------------------------------
-# Day 5: RAG endpoints
+# Day 5: RAG endpoints (PRESERVED)
 # ---------------------------------------------------------------------------
 @router.post(
     "/rag/seed",
@@ -262,7 +277,7 @@ async def search_rag(
 
 
 # ---------------------------------------------------------------------------
-# Day 6: Doctor lookup endpoints
+# Day 6: Doctor lookup endpoints (PRESERVED)
 # ---------------------------------------------------------------------------
 @router.get(
     "/doctors",
@@ -323,4 +338,38 @@ async def get_doctor_schedule(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve doctor availability.",
+        ) from exc
+
+
+# ---------------------------------------------------------------------------
+# Day 7: Safety monitoring endpoint (NEW)
+# ---------------------------------------------------------------------------
+@router.get(
+    "/monitoring/metrics",
+    status_code=status.HTTP_200_OK,
+    summary="Safety & Performance Metrics",
+    description="Returns current safety and performance metrics for monitoring.",
+)
+async def get_monitoring_metrics(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """
+    Retrieve current safety and performance metrics.
+
+    Returns counters for emergency detections, safety violations,
+    NFR-02 breaches, and latency statistics.
+    """
+    try:
+        metrics = get_metrics()
+        summary = metrics.get_summary()
+        logger.info("Monitoring metrics requested by user_id=%s", current_user.get("id"))
+        return {
+            "status": "ok",
+            "metrics": summary,
+        }
+    except Exception as exc:
+        logger.exception("Failed to retrieve monitoring metrics: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve monitoring metrics.",
         ) from exc

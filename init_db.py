@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
-Hoku Health Care - Database Initialization Script (Day 6).
+Hoku Health Care - Database Initialization Script (Day 7).
 
 Run this once after deleting the SQLite database to recreate all tables.
 Not needed in production (Alembic handles migrations there).
+
+Day 7 update: Registers SafetyLog model with Base.metadata.
 """
 
 from app.core.database import Base, engine
@@ -13,6 +15,7 @@ from app.models.models_chat import ChatHistory  # noqa: F401
 from app.models.vector_store import VectorStore  # noqa: F401  (Day 5)
 from app.models.models_doctor import Doctor  # noqa: F401  (Day 6)
 from app.models.doctor_availability import DoctorAvailability  # noqa: F401  (Day 6)
+from app.models.safety_log import SafetyLog  # noqa: F401  (Day 7)
 
 from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
