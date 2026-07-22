@@ -71,8 +71,8 @@ async def _llm_extract_symptoms(text: str) -> List[str]:
     Returns JSON {"symptoms": [...]} or empty list on failure.
     """
     try:
-        from langchain.chains import LLMChain
         from langchain_groq import ChatGroq
+        from langchain_core.messages import HumanMessage, SystemMessage
 
         llm = ChatGroq(
             model=ai_settings.SYMPTOM_EXTRACTION_MODEL,
@@ -82,22 +82,25 @@ async def _llm_extract_symptoms(text: str) -> List[str]:
             request_timeout=ai_settings.SYMPTOM_EXTRACTION_TIMEOUT,
         )
 
-        prompt_text = (
-            "Extract medical symptoms from the following patient message. "
-            "Return ONLY a JSON object with this exact format: "
-            '{"symptoms": ["symptom1", "symptom2"]}. '
-            "If no symptoms are mentioned, return {\"symptoms\": []}.\n\n"
-            f'Patient message: "{text}"\n\n'
-            "JSON response:"
-        )
+        # Use proper message format for ChatGroq in LangChain 0.2.6
+        messages = [
+            SystemMessage(content=(
+                "You are a medical symptom extractor. Extract only the symptoms "
+                "mentioned in the patient's message. Return ONLY a JSON object "
+                'with this exact format: {"symptoms": ["symptom1", "symptom2"]}. '
+                'If no symptoms are mentioned, return {"symptoms": []}.'
+            )),
+            HumanMessage(content=f'Patient message: "{text}"'),
+        ]
 
-        chain = LLMChain(llm=llm, prompt=None, verbose=False)
-        # Build a simple prompt invocation
-        result = await asyncio.to_thread(chain.invoke, {"text": prompt_text})
+        # Direct LLM invocation with message list
+        result = await asyncio.to_thread(llm.invoke, messages)
 
         raw_text = ""
         if isinstance(result, str):
             raw_text = result
+        elif hasattr(result, "content"):
+            raw_text = result.content
         elif isinstance(result, dict):
             for key in ("text", "output", "content", "response"):
                 if key in result and isinstance(result[key], str):

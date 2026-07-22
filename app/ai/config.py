@@ -15,6 +15,10 @@ Day 7 additions:
 - Emergency check timeout (Tier 2 LLM fallback)
 - Safety max retries (3-strike mechanism)
 - Safety fallback response (hardcoded safe message)
+
+Day 8 additions:
+- Increased intent classification timeout to accommodate cold-start
+  LLM initialization without breaching budgets.
 """
 
 import logging
@@ -76,7 +80,11 @@ class AISettings(BaseSettings):
     # Intent Classification (Day 4)
     # ------------------------------------------------------------------
     INTENT_MODEL: str = "llama-3.1-8b-instant"
-    INTENT_CLASSIFICATION_TIMEOUT: float = 0.5
+    # CRITICAL FIX: Increased from 0.5s to 1.0s. On cold start, the fast
+    # LLM (8B) needs time to initialize + make the first API call.
+    # The 0.5s timeout was causing intent classification to fallback to
+    # GENERAL on every cold start, losing intent-aware routing.
+    INTENT_CLASSIFICATION_TIMEOUT: float = 1.0
     INTENT_CONFIDENCE_THRESHOLD: float = 0.7
 
     # ------------------------------------------------------------------

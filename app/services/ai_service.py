@@ -17,6 +17,7 @@ from typing import Any, Dict, Optional  # <-- Added Optional here
 from sqlalchemy.orm import Session
 
 from app.ai.chatbot import HokuChatbot
+from app.ai.config import ai_settings
 from app.ai.intent_classifier import IntentClassifier, IntentEnum
 from app.ai.memory import HokuConversationMemory
 from app.core.exceptions import DatabaseOperationException
@@ -123,7 +124,10 @@ async def process_chat(
         # ------------------------------------------------------------------
         # Coordinate memory save after successful response
         # ------------------------------------------------------------------
-        memory_manager = HokuConversationMemory()
+        memory_manager = HokuConversationMemory(
+            message_limit=ai_settings.MEMORY_MESSAGE_LIMIT,
+            max_history_tokens=ai_settings.MEMORY_MAX_TOKENS,
+        )
         memory_manager.save_memory(
             user_id=user_id,
             human_message=message,

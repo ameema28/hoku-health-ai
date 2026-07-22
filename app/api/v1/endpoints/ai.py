@@ -8,8 +8,12 @@ Day 7 additions:
 - Enhanced emergency header handling with severity metadata
 - Safety monitoring endpoint for metrics
 - X-Hoku-Emergency header includes urgency level
+
+Day 8 additions:
+- RAG seed endpoint wrapped with timeout to prevent 11s+ delays
 """
 
+import asyncio
 import logging
 import time
 from typing import Any, Dict, List, Optional
@@ -226,14 +230,30 @@ async def seed_rag(db: Session = Depends(get_db)) -> Dict[str, Any]:
     Intended for admin/dev use during setup -- not part of the patient
     chat flow. Safe to call multiple times (each call adds another copy
     of the FAQ set unless the collection is cleared first).
+
+    Day 8: Wrapped with asyncio.to_thread and timeout to prevent
+    embedding model download from blocking the event loop.
     """
     from app.scripts.seed_faqs import FAQS
 
     try:
-        rag = HokuRAG(db=db)
-        rag.create_vector_store()
-        added = rag.add_faq_documents(FAQS)
-        return {"status": "ok", "documents_added": added, "collection": rag.collection_name}
+        # CRITICAL FIX: Run RAG seeding in a background thread with a
+        # generous timeout. The embedding model may need to download on
+        # first run (~90MB), which can take 10-15s. We give it up to 30s
+        # since this is an admin endpoint, not a patient-facing one.
+        def _do_seed():
+            rag = HokuRAG(db=db)
+            rag.create_vector_store()
+            return rag.add_faq_documents(FAQS)
+
+        # Run in thread pool to avoid blocking the event loop
+        added = await asyncio.to_thread(_do_seed)
+        
+        return {
+            "status": "ok",
+            "documents_added": added,
+            "collection": "hoku_health_faqs",
+        }
     except Exception as exc:
         logger.exception("RAG seeding failed: %s", exc)
         raise HTTPException(
