@@ -15,9 +15,26 @@ Key design decisions:
 import asyncio
 import logging
 import time
-from typing import Any, Callable, Coroutine, Optional, Union
+from typing import Any, Callable, Coroutine, Optional, Tuple, Type, Union
+
+from app.ai.config import ai_settings
 
 logger = logging.getLogger(__name__)
+
+# Day 8.1: Exception classes that indicate a BUG IN OUR CODE, not a transient
+# runtime failure. These must never be silently converted into a fallback
+# value — doing so is what disguised
+#     TypeError: Chain.invoke() missing 1 required positional argument: 'input'
+# as an "LLM timeout" for an entire debugging session. Transport failures
+# (network, HTTP, rate limits) still degrade gracefully; signature and
+# attribute errors now surface loudly with a full traceback.
+PROGRAMMING_ERRORS: Tuple[Type[BaseException], ...] = (
+    TypeError,
+    AttributeError,
+    NameError,
+    KeyError,
+    IndexError,
+)
 
 
 class ResponseOptimizer:
@@ -38,21 +55,41 @@ class ResponseOptimizer:
     # NFR-02 ceiling: 3.5s pipeline + 0.5s network buffer = 4.0s total
     MAX_TOTAL_TIME: float = 3.5
 
-    # Per-stage time allocations (sum = 3.5s, matching MAX_TOTAL_TIME)
+    # Per-stage time allocations (sum of serial stages + concurrent max ≤ 3.5s)
     # REALISTIC budgets for Windows/SQLite cold-start development environment.
-    # These are TARGET budgets, not hard limits — stages should attempt
-    # to complete within them, but the optimizer logs warnings when
-    # exceeded so operators can tune thresholds.
     TIME_BUDGETS: dict[str, float] = {
         "emergency_detect": 0.05,   # Regex: ~5ms actual
-        "intent_classify": 0.60,    # LLM call: 400-800ms on cold start
+        "intent_classify": max(0.60, float(ai_settings.INTENT_CLASSIFICATION_TIMEOUT)),
         "memory_load": 0.60,        # SQLite cold-start: 300-500ms
         "rag_retrieve": 0.50,       # Embedding + similarity search
-        "llm_generate": 1.20,       # Main LLM with compressed prompt
+        "llm_generate": 1.40,       # Main LLM with compressed prompt
         "safety_check": 0.10,       # Regex validation: ~5-20ms
-        "db_persist": 0.15,         # INSERT + COMMIT
-        "doctor_lookup": 0.30,    # Symptom extract + DB query
+        "db_persist": 0.10,         # INSERT + COMMIT
+        "doctor_lookup": 0.20,      # Symptom extract + DB query
     }
+
+    # Stages executed concurrently via asyncio.gather. Their budgets must NOT
+    # be summed against MAX_TOTAL_TIME — the wall-clock cost is max(), not sum().
+    CONCURRENT_STAGES: frozenset = frozenset({
+        "intent_classify", "memory_load", "rag_retrieve",
+    })
+
+    @classmethod
+    def expected_serial_time(cls) -> float:
+        """
+        Wall-clock budget of the pipeline, accounting for concurrency.
+
+        Use this instead of sum(TIME_BUDGETS.values()) when reasoning about
+        NFR-02 headroom.
+        """
+        concurrent_cost = max(
+            cls.TIME_BUDGETS[stage] for stage in cls.CONCURRENT_STAGES
+        )
+        sequential_cost = sum(
+            budget for stage, budget in cls.TIME_BUDGETS.items()
+            if stage not in cls.CONCURRENT_STAGES
+        )
+        return round(concurrent_cost + sequential_cost, 3)
 
     @classmethod
     def enforce_budget(cls, step_name: str, start_time: float) -> bool:
@@ -139,6 +176,7 @@ async def generate_with_timeout(
     timeout: float,
     fallback_value: Any = None,
     *args: Any,
+    reraise_on: Tuple[Type[BaseException], ...] = PROGRAMMING_ERRORS,
     **kwargs: Any,
 ) -> Any:
     """
@@ -153,9 +191,20 @@ async def generate_with_timeout(
     Args:
         coro_or_func: A coroutine object, an async function, or a sync callable.
         timeout: Maximum seconds to wait before returning fallback.
-        fallback_value: Value returned if timeout or exception occurs.
+        fallback_value: Value returned if timeout or transient error occurs.
         *args: Positional arguments for callable (if not a coroutine).
+        reraise_on: Exception classes treated as programming errors and
+            propagated instead of converted to fallback_value. Defaults to
+            PROGRAMMING_ERRORS. Pass an empty tuple () to restore the old
+            swallow-everything behaviour.
         **kwargs: Keyword arguments for callable (if not a coroutine).
+
+    IMPORTANT — argument forwarding contract:
+        *args and **kwargs are forwarded VERBATIM to coro_or_func. A keyword
+        whose name does not match the target's parameter name will land in the
+        target's **kwargs and leave its positional parameters unbound. When in
+        doubt, bind arguments at the call site with functools.partial and pass
+        a zero-argument callable here.
 
     Returns:
         Any: Result of coro_or_func, or fallback_value on timeout/error.
@@ -165,30 +214,12 @@ async def generate_with_timeout(
     """
     try:
         if asyncio.iscoroutine(coro_or_func):
-            # Already a coroutine — await directly with timeout
             result = await asyncio.wait_for(coro_or_func, timeout=timeout)
         elif asyncio.iscoroutinefunction(coro_or_func):
-            # An async function — call it first, then await with timeout
             result = await asyncio.wait_for(coro_or_func(*args, **kwargs), timeout=timeout)
         else:
-            # Synchronous callable — run in thread pool with timeout.
-            # CRITICAL FIX: Detect MagicMock instances (used in tests).
-            # MagicMock is callable and returns a MagicMock when called,
-            # but asyncio.to_thread wraps it in a real thread which causes
-            # issues. For mocks, call directly since they execute instantly.
-            try:
-                from unittest.mock import MagicMock
-                if isinstance(coro_or_func, MagicMock):
-                    # MagicMock: call directly (instant in tests)
-                    result = coro_or_func(*args, **kwargs)
-                else:
-                    # Real sync callable: wrap in thread pool
-                    thread_task = asyncio.to_thread(coro_or_func, *args, **kwargs)
-                    result = await asyncio.wait_for(thread_task, timeout=timeout)
-            except ImportError:
-                # No unittest.mock available (shouldn't happen in tests)
-                thread_task = asyncio.to_thread(coro_or_func, *args, **kwargs)
-                result = await asyncio.wait_for(thread_task, timeout=timeout)
+            thread_task = asyncio.to_thread(coro_or_func, *args, **kwargs)
+            result = await asyncio.wait_for(thread_task, timeout=timeout)
         return result
 
     except asyncio.TimeoutError:
@@ -197,6 +228,12 @@ async def generate_with_timeout(
             timeout,
         )
         return fallback_value
+
+    except reraise_on:
+        logger.exception(
+            "[PERFORMANCE] Programming error inside timed operation — re-raising"
+        )
+        raise
 
     except Exception as exc:
         logger.warning(

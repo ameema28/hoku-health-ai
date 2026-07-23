@@ -27,7 +27,35 @@ logger = logging.getLogger(__name__)
 # Definitive diagnosis patterns: language that asserts a medical condition
 _DIAGNOSIS_PATTERNS: List[re.Pattern] = [
     re.compile(r'\byou\s+have\s+(?:a\s+)?(?:\w+\b(?:itis|osis|emia|oma|pathy|syndrome)|pneumonia|bronchitis|hypertension|diabetes|asthma|infection|cold|flu|migraine|headache|cough|fever)', re.IGNORECASE),
-    re.compile(r'\byou\s+have\s+(?:a\s+)?[A-Za-z][A-Za-z\s\'-]{0,100}\b', re.IGNORECASE),
+    # ------------------------------------------------------------------
+    # REMOVED Day 8.1 — catastrophic false-positive pattern:
+    #     r'\byou\s+have\s+(?:a\s+)?[A-Za-z][A-Za-z\s\'-]{0,100}\b'
+    #
+    # It matched ANY occurrence of "you have" plus up to 100 following
+    # characters, so ordinary phrasing was flagged as a definitive diagnosis:
+    #     "If you have any questions, please reach out"      -> FLAGGED
+    #     "Since you have been experiencing fatigue"          -> FLAGGED
+    #     "You have several options for booking"              -> FLAGGED
+    # while missing real clinical language that omits the pronoun:
+    #     "Diabetes symptoms include thirst and fatigue"      -> not flagged
+    #
+    # Worse, sanitize_response() had NO counterpart replacement for it, so
+    # the offending text survived sanitisation unchanged. validate ->
+    # sanitize -> validate looped three times without converging and every
+    # such reply was replaced by the 3-strike SAFETY_FALLBACK_RESPONSE.
+    # Net effect: the guardrail silently destroyed correct, safe answers.
+    #
+    # The pattern immediately above already covers genuine diagnosis
+    # assertions ("you have diabetes", "you have bronchitis", "...itis",
+    # "...osis", etc.), so removing this line narrows false positives
+    # without weakening clinical coverage.
+    #
+    # INVARIANT for anyone editing this list: every pattern here MUST have a
+    # corresponding entry in sanitize_response's diagnosis_replacements.
+    # A validate pattern with no sanitiser cannot converge and will always
+    # burn all three strikes. tests/test_chatbot.py::TestSafetyConvergence
+    # enforces this.
+    # ------------------------------------------------------------------
     re.compile(r'\byou\s+are\s+suffering\s+from\b', re.IGNORECASE),
     re.compile(r'\bdiagnosis\s+is\s+', re.IGNORECASE),
     re.compile(r'\byour\s+condition\s+is\s+', re.IGNORECASE),
@@ -209,8 +237,15 @@ class SafetyGuardrails:
              r'Please follow your doctor\'s instructions for taking \1.'),
             (r'\bstart\s+taking\s+(\w+)\b',
              r'Discuss starting \1 with your doctor first.'),
+            # Day 8.1: the old replacement was
+            #     r'Never stop taking \1 without consulting your doctor.'
+            # which REPRODUCES the trigger phrase "stop taking <drug>". The
+            # pattern re-matched its own output on every pass, so the 3-strike
+            # loop could never converge and any reply mentioning stopping a
+            # medication was replaced by the safety fallback. The wording
+            # below carries the same clinical meaning without the trigger.
             (r'\bstop\s+taking\s+(\w+)\b',
-             r'Never stop taking \1 without consulting your doctor.'),
+             r'please do not discontinue \1 on your own — speak with your doctor first'),
             (r'\bincrease\s+(?:your\s+)?(?:dose|dosage|medication)\b',
              'Any changes to your medication should be approved by your doctor.'),
             (r'\bdecrease\s+(?:your\s+)?(?:dose|dosage|medication)\b',

@@ -96,7 +96,6 @@ _RED_FLAG_MODERATE: list[str] = [
     "dehydration",
     "severe dehydration",
     "persistent vomiting",
-    "severe abdominal pain",
     "unable to urinate",
     "confusion",
     "altered mental state",

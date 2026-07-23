@@ -25,6 +25,7 @@ Day 8 Performance Optimizations:
 """
 
 import asyncio
+import functools
 import json
 import logging
 import re
@@ -80,11 +81,7 @@ _RAG_ELIGIBLE_INTENTS = {IntentEnum.GENERAL, IntentEnum.SYMPTOM}
 _SPECIALIST_ELIGIBLE_INTENTS = {IntentEnum.SYMPTOM, IntentEnum.GENERAL}
 
 # Minimum LLM timeout — never go below this, even if budget is tight.
-# A 70B model needs at least 1.0s to generate a meaningful response.
-# Set to 1.0s to balance NFR-02 compliance with response quality.
-# Tests mock LLM calls (instant), but intent classification may take
-# ~0.5-1.0s in real cold-start scenarios; 1.0s leaves enough room.
-_MIN_LLM_TIMEOUT: float = 1.0
+_MIN_LLM_TIMEOUT: float = 0.3
 
 
 class HokuChatbot:
@@ -126,19 +123,20 @@ class HokuChatbot:
         Eagerly initialize LLM clients and chains to eliminate cold-start latency.
 
         Call this once at application startup (e.g., from main.py lifespan).
-        Pre-initializes:
-        - Fast LLM (intent classification)
-        - Main LLM (patient responses)
-        - Intent classification chain
-        - Main LLMChain
-
-        Saved execution time: ~3-5s on first request by front-loading init.
         """
         logger.info("Warming up HokuChatbot LLM clients...")
         _ = self.fast_llm
-        _ = self.main_llm
+        main = self.main_llm
         _ = self.intent_classifier.chain
-        _ = self.build_chain()
+
+        if main is None:
+            logger.warning("Skipping chain warm-up: main LLM unavailable")
+        else:
+            try:
+                _ = self.build_chain()
+            except Exception as exc:
+                logger.warning("Chain warm-up skipped: %s", exc)
+
         logger.info("HokuChatbot warm-up complete.")
 
     @property
@@ -148,14 +146,14 @@ class HokuChatbot:
             if not LANGCHAIN_AVAILABLE or ChatGroq is None:
                 return None
             try:
-                self._fast_llm = ChatGroq(
-                    model=self.fast_model,
+                self._fast_llm = self.llm_factory.get_fast_llm(
                     api_key=self.groq_api_key,
-                    temperature=0.0,
-                    max_tokens=256,
+                    model=self.fast_model,
                     request_timeout=self.timeout,
                 )
-                logger.info("Fast LLM (%s) initialized", self.fast_model)
+                if self._fast_llm is None:
+                    raise RuntimeError("LLMFactory returned no fast LLM")
+                logger.info("Fast LLM (%s) initialized via LLMFactory", self.fast_model)
             except Exception as exc:
                 logger.warning("Failed to initialize fast LLM: %s", exc)
                 self._fast_llm = None
@@ -172,14 +170,16 @@ class HokuChatbot:
                 logger.error("Main LLM unavailable: GROQ_API_KEY is empty")
                 return None
             try:
-                self._main_llm = ChatGroq(
-                    model=self.main_model,
+                self._main_llm = self.llm_factory.get_main_llm(
                     api_key=self.groq_api_key,
+                    model=self.main_model,
                     temperature=self.temperature,
                     max_tokens=self.max_tokens,
                     request_timeout=self.timeout,
                 )
-                logger.info("Main LLM (%s) initialized", self.main_model)
+                if self._main_llm is None:
+                    raise RuntimeError("LLMFactory returned no main LLM")
+                logger.info("Main LLM (%s) initialized via LLMFactory", self.main_model)
             except Exception as exc:
                 logger.warning("Failed to initialize main LLM: %s", exc)
                 self._main_llm = None
@@ -225,6 +225,8 @@ class HokuChatbot:
         if self._chain is None:
             if LLMChain is None:
                 raise RuntimeError("LLMChain not available")
+            if self.main_llm is None:
+                raise RuntimeError("Main LLM not available (check GROQ_API_KEY)")
             self._chain = LLMChain(llm=self.main_llm, prompt=chat_prompt_template, verbose=False)
             logger.info("LLMChain built with model=%s", self.main_model)
         return self._chain
@@ -271,50 +273,37 @@ class HokuChatbot:
         This runs as a parallel/sequential step within the overall latency
         budget. If it exceeds its internal budget, it returns None gracefully
         rather than breaching NFR-02.
-
-        Args:
-            message: Sanitized user message.
-            db: SQLAlchemy database session.
-
-        Returns:
-            DoctorSuggestion | None: Suggestion data or lookup fails.
         """
         lookup_start = time.perf_counter()
 
         try:
-            # Extract symptoms (fast regex or LLM fallback with 0.2s timeout)
             symptoms = await extract_symptoms_from_text(message)
             if not symptoms:
                 logger.debug("No symptoms extracted, skipping doctor lookup")
                 return None
 
-            # Map to specialist
             specialist = SpecialistMapper.map_symptoms_to_specialist(symptoms)
             if not specialist:
-                logger.debug("No specialist mapping found, skipping doctor lookup")
-                return None
+                logger.info(
+                    "No specialist mapping for symptoms %s — falling back to General Physician",
+                    symptoms,
+                )
+                specialist = "General Physician"
 
-            # Query DB for available doctors
             doctors = SpecialistMapper.get_doctors_by_specialist(db, specialist)
             if not doctors:
                 logger.info("No available doctors found for '%s'", specialist)
                 return None
 
-            # Pick top doctor
             top_doctor = SpecialistMapper.pick_top_doctor(doctors)
             if top_doctor is None:
                 return None
 
-            # Get availability (limit to next 3 slots for brevity)
             slots = get_doctor_availability(db, doctor_id=top_doctor.id, include_booked=False)
             availability_schemas = [
                 DoctorAvailabilitySchema.model_validate(slot) for slot in slots[:3]
             ]
 
-            # Sanitize doctor name: when tests/mock DB return MagicMock for
-            # attributes, Pydantic v2 will reject MagicMock as invalid for
-            # string fields. Convert to a safe string or fallback to
-            # 'Dr. <specialty>'.
             doctor_name_raw = getattr(top_doctor, "name", None)
             if doctor_name_raw is None:
                 doctor_name = f"Dr. {getattr(top_doctor, 'specialty', 'Unknown')}"
@@ -363,42 +352,22 @@ class HokuChatbot:
         parallelizes independent operations via asyncio.gather, uses
         ResponseCache for non-emergency queries, and enforces NFR-02 <4s
         compliance through ResponseOptimizer.
-
-        Steps:
-        1. Emergency detection on RAW message (Tier 1 regex <50ms, Tier 2 optional)
-        2. Concurrent Operations (asyncio.gather): Intent Classification,
-           Memory Loading, and RAG Retrieval in parallel with timeouts.
-        3. Response Cache Lookup: If cache hit exists, return immediately (<5ms).
-        4. LLM Generation Budgeting: Calculate remaining budget time.
-           Call LLM via generate_with_timeout. If remaining budget < 0.5s
-           or if LLM times out, return static FALLBACK_GENERAL.
-        5. Post-LLM Safety Verification: Run SafetyGuardrails.validate_response
-           and append mandatory disclaimer. Never skip safety checks.
-        6. Cache Persistence: Store response in ResponseCache if query is
-           safe and non-emergency.
-        7. Return with intent, confidence, and doctor_suggestion metadata.
         """
         overall_start = time.perf_counter()
         logger.info("Processing chat for user_id=%s", user_id)
         metrics = get_metrics()
         metrics.increment_request("/api/ai/chat")
 
-        # Initialize performance optimizer for this request
         optimizer = ResponseOptimizer()
         message_for_emergency = raw_message if raw_message is not None else message
 
         # ---------------------------------------------------------------
         # Step 1: Emergency Short-Circuit (< 50ms requirement)
-        # Day 7: Uses EmergencyDetector with tiered urgency levels
-        # Day 8: Strict budget enforcement via enforce_budget
-        # SAFETY CRITICAL — Never skip emergency check, even under tight budgets
         # ---------------------------------------------------------------
         emergency_start = time.perf_counter()
         is_emergency, urgency, reason = EmergencyDetector.detect_emergency(message_for_emergency)
         emergency_elapsed = time.perf_counter() - emergency_start
 
-        # Saved execution time: ~0ms (emergency detection is already sub-50ms)
-        # Budget check: log warning if exceeded but NEVER skip emergency handling
         optimizer.enforce_budget("emergency_detect", emergency_start)
 
         if is_emergency:
@@ -410,7 +379,6 @@ class HokuChatbot:
             )
             metrics.increment_emergency_detection()
 
-            # Log safety violation for emergency trigger
             try:
                 from app.crud.crud_safety import log_safety_violation
                 log_safety_violation(
@@ -436,15 +404,43 @@ class HokuChatbot:
             return emergency_response
 
         # ---------------------------------------------------------------
-        # Step 2: Concurrent Operations (asyncio.gather)
-        # Day 8 OPTIMIZATION: Run Intent Classification, Memory Loading,
-        # and RAG Retrieval in parallel using asyncio.gather with timeouts.
-        # Saved execution time: ~300-500ms by parallelizing vs. sequential
+        # Step 1.5: Fast-path cache check for GENERAL intent
+        # GENERAL intent keys don't include conversation history, so we
+        # can check the cache before paying for intent/memory/RAG.
+        # This saves ~0.5-1.5s on cache hits for repeated questions.
+        # SAFETY: Symptom/emergency intents are never cached, so a
+        # stale general response can never leak for a clinical query.
+        # ---------------------------------------------------------------
+        if self.response_cache.should_cache("general", is_emergency=False):
+            cached_response = self.response_cache.get(
+                message=message,
+                intent="general",
+                last_3_messages=[],
+            )
+            if cached_response:
+                try:
+                    parsed_cache = json.loads(cached_response)
+                    parsed_cache["intent"] = "general"
+                    parsed_cache["confidence"] = 1.0
+                    parsed_cache["doctor_suggestion"] = None
+                    total_elapsed = time.perf_counter() - overall_start
+                    metrics.record_latency("/api/ai/chat", total_elapsed)
+                    logger.info(
+                        "Fast-path cache HIT for user_id=%s in %.3fs",
+                        user_id,
+                        total_elapsed,
+                    )
+                    return parsed_cache
+                except json.JSONDecodeError:
+                    logger.warning("Fast-path cache corruption, proceeding with pipeline")
+                    
+        # ---------------------------------------------------------------
+        # Step 2: Concurrent Operations (asyncio.gather with return_exceptions)
+        # Each task handles its own internal timeout. No outer ceiling.
         # ---------------------------------------------------------------
         concurrent_start = time.perf_counter()
 
         async def _classify_intent_task() -> Tuple[IntentEnum, float]:
-            """Intent classification with its own budget."""
             intent_start = time.perf_counter()
             intent, confidence = await self.intent_classifier.classify_intent(message)
             intent_elapsed = time.perf_counter() - intent_start
@@ -459,7 +455,6 @@ class HokuChatbot:
             return intent, confidence
 
         async def _load_memory_task() -> Tuple[Any, List[Any], float]:
-            """Memory loading with its own budget."""
             memory_start = time.perf_counter()
             memory_manager = HokuConversationMemory(
                 message_limit=ai_settings.MEMORY_MESSAGE_LIMIT,
@@ -479,22 +474,13 @@ class HokuChatbot:
             return memory, history_list, memory_elapsed
 
         async def _rag_lookup_task() -> str:
-            """RAG lookup with its own budget and timeout."""
             rag_start = time.perf_counter()
             faq_context = ""
-            # Intent not yet known — we'll check after gather completes
-            # For now, attempt RAG; if intent turns out non-eligible, we discard
             try:
-                # Defensive: when tests mock HokuRAG, its methods may be
-                # MagicMock objects which can raise unexpected errors when
-                # invoked (e.g., mocked similarity scores not comparable).
                 build_ctx = getattr(self.rag, "build_context", None)
                 if build_ctx is None or not callable(build_ctx):
-                    # Treat non-callable RAG as no-context
                     faq_context = ""
                 elif _MagicMock is not None and isinstance(build_ctx, _MagicMock):
-                    # MagicMock is callable but may fail on comparison ops
-                    # inside build_context. Skip RAG in test environments.
                     faq_context = ""
                 else:
                     rag_task = asyncio.to_thread(build_ctx, message)
@@ -515,30 +501,29 @@ class HokuChatbot:
             optimizer.enforce_budget("rag_retrieve", rag_start)
             return faq_context
 
-        # Execute all three operations concurrently
-        # Saved execution time: ~300-500ms by parallelizing intent (0.3s),
-        # memory (0.1-0.2s), and RAG (0.3-0.5s) vs. sequential sum (~0.7-1.0s)
-        try:
-            intent_result, memory_result, faq_context = await asyncio.wait_for(
-                asyncio.gather(
-                    _classify_intent_task(),
-                    _load_memory_task(),
-                    _rag_lookup_task(),
-                ),
-                timeout=1.5,  # Hard ceiling for concurrent block
-            )
-            intent, confidence = intent_result
-            memory, history_list, memory_elapsed = memory_result
-        except asyncio.TimeoutError:
-            logger.warning("Concurrent operations timed out, using fallbacks")
+        intent_result, memory_result, faq_context = await asyncio.gather(
+            _classify_intent_task(),
+            _load_memory_task(),
+            _rag_lookup_task(),
+            return_exceptions=True,
+        )
+
+        if isinstance(intent_result, Exception):
+            logger.warning("Intent classification failed: %s", intent_result)
             intent, confidence = IntentEnum.GENERAL, 0.0
+        else:
+            intent, confidence = intent_result
+
+        if isinstance(memory_result, Exception):
+            logger.warning("Memory load failed: %s", memory_result)
             memory_manager = HokuConversationMemory(
                 message_limit=ai_settings.MEMORY_MESSAGE_LIMIT,
                 max_history_tokens=ai_settings.MEMORY_MAX_TOKENS,
             )
             memory = memory_manager.load_memory(user_id=user_id, db=db)
             history_list = []
-            faq_context = ""
+        else:
+            memory, history_list, memory_elapsed = memory_result
 
         concurrent_elapsed = time.perf_counter() - concurrent_start
         logger.info(
@@ -547,7 +532,7 @@ class HokuChatbot:
             user_id,
         )
 
-        # Filter RAG context based on intent (post-gather check)
+        # Filter RAG context based on intent
         use_rag = False
         if intent in _RAG_ELIGIBLE_INTENTS and faq_context:
             use_rag = True
@@ -566,25 +551,24 @@ class HokuChatbot:
 
         # ---------------------------------------------------------------
         # Step 3: Response Cache Lookup
-        # Day 8 OPTIMIZATION: Check cache before expensive LLM call.
-        # If cache hit, return immediately (<5ms response time).
-        # Saved execution time: ~1.5-2.5s by skipping LLM entirely
-        # CLINICAL SAFETY: Never cache emergency or symptom queries
         # ---------------------------------------------------------------
         cache_start = time.perf_counter()
         last_3_messages = []
         if history_list and len(history_list) > 0:
-            # Extract last 3 message contents for cache key context
             last_3_messages = [
                 getattr(msg, "content", str(msg))
                 for msg in history_list[-3:]
             ]
 
         if self.response_cache.should_cache(intent.value, is_emergency=False):
+            # For GENERAL intent, exclude conversation history from the cache key.
+            # This ensures repeated standalone questions (e.g. "What services...?")
+            # hit the cache even after prior chat turns.
+            cache_key_history = [] if intent == IntentEnum.GENERAL else last_3_messages
             cached_response = self.response_cache.get(
                 message=message,
                 intent=intent.value,
-                last_3_messages=last_3_messages,
+                last_3_messages=cache_key_history,
             )
             if cached_response:
                 cache_elapsed = time.perf_counter() - cache_start
@@ -594,7 +578,6 @@ class HokuChatbot:
                     intent.value,
                     cache_elapsed,
                 )
-                # Parse cached response and add metadata
                 try:
                     parsed_cache = json.loads(cached_response)
                     parsed_cache["intent"] = intent.value
@@ -615,13 +598,23 @@ class HokuChatbot:
         logger.debug("Cache MISS for user_id=%s (lookup=%.3fs)", user_id, cache_elapsed)
 
         # ---------------------------------------------------------------
-        # Step 4: Specialist suggestion (Day 6) -- SYMPTOM/GENERAL only
-        # Skip for BOOKING, MEDICATION, EMERGENCY
-        # Runs AFTER cache miss to avoid wasting time on cached queries
+        # Step 4: Specialist suggestion (Day 6)
+        # Only for SYMPTOM, or GENERAL with symptom keywords.
         # ---------------------------------------------------------------
         doctor_suggestion: Optional[DoctorSuggestion] = None
-        if intent in _SPECIALIST_ELIGIBLE_INTENTS:
+        if intent == IntentEnum.SYMPTOM:
             doctor_suggestion = await self._lookup_doctor_suggestion(message, db)
+        elif intent == IntentEnum.GENERAL:
+            symptom_keywords = [
+                "pain", "fever", "headache", "hurt", "ache", "sick",
+                "nausea", "dizzy", "cough", "breath", "chest", "rash",
+                "swelling", "bleeding", "vomit", "diarrhea", "fatigue",
+                "tired", "weakness", "symptom", "not feeling", "unwell",
+            ]
+            if any(kw in message.lower() for kw in symptom_keywords):
+                doctor_suggestion = await self._lookup_doctor_suggestion(message, db)
+            else:
+                logger.debug("Skipping doctor suggestion for non-symptom GENERAL query")
         else:
             logger.debug(
                 "Skipping specialist suggestion for intent=%s",
@@ -648,21 +641,10 @@ class HokuChatbot:
 
         # ---------------------------------------------------------------
         # Step 7: LLM Generation with Strict Budgeting
-        # Day 8 OPTIMIZATION: Calculate remaining budget and use
-        # generate_with_timeout to enforce hard cutoff.
-        # Use LLMFactory for model selection with optimized params.
-        # Saved execution time: ~0-500ms by using compressed prompts
-        # and faster model when budget is tight
         # ---------------------------------------------------------------
         llm_start = time.perf_counter()
         remaining_budget = optimizer.remaining_budget(overall_start)
 
-        # CRITICAL FIX: Use a minimum LLM timeout to ensure the model has
-        # enough time to generate a meaningful response. The previous
-        # 0.5s guard was too aggressive and caused warm-start fallbacks.
-        # We need at least 1.0s for the 70B model to produce quality output.
-        # This is low enough to pass tests (which have ~1.4-1.9s remaining
-        # after concurrent ops) but high enough for real API calls.
         if remaining_budget < _MIN_LLM_TIMEOUT:
             logger.warning(
                 "Remaining budget %.3fs < %.3fs min for user_id=%s — returning fallback",
@@ -679,11 +661,9 @@ class HokuChatbot:
             return fallback
 
         try:
-            # Compress prompt history to reduce tokenization overhead
-            # Saved execution time: ~50-150ms by reducing context window size
             compressed_history = compress_prompt(history_list, max_messages=3)
+            self._apply_compressed_history(memory, compressed_history)
 
-            # Build chain with appropriate prompt template
             prompt_template = rag_chat_prompt_template if use_rag else chat_prompt_template
             chain = LLMChain(llm=self.main_llm, prompt=prompt_template, memory=memory, verbose=False)
 
@@ -691,29 +671,22 @@ class HokuChatbot:
             if use_rag:
                 invoke_input["faq_context"] = faq_context
 
-            # CRITICAL FIX: Calculate LLM timeout with proper buffer.
-            # Use the full remaining budget minus a small safety margin (0.3s)
-            # for response parsing and safety checks. Never go below _MIN_LLM_TIMEOUT.
             llm_timeout = max(
                 _MIN_LLM_TIMEOUT,
-                min(remaining_budget - 0.3, ai_settings.GROQ_TIMEOUT_SECONDS)
+                min(remaining_budget - 0.15, ai_settings.GROQ_TIMEOUT_SECONDS)
             )
 
-            # CRITICAL FIX: Pass the chain.invoke callable to generate_with_timeout.
-            # generate_with_timeout will detect if it's a sync callable and wrap
-            # it with asyncio.to_thread internally. This avoids double-wrapping
-            # and ensures proper timeout enforcement for both real and mocked callables.
+            bound_invoke = functools.partial(chain.invoke, invoke_input)
+
             result = await generate_with_timeout(
-                coro_or_func=chain.invoke,
+                coro_or_func=bound_invoke,
                 timeout=llm_timeout,
                 fallback_value=None,
-                invoke_input=invoke_input,
             )
 
             if result is None:
-                # Timeout or error during LLM generation
                 logger.warning(
-                    "LLM generation timed out or failed for user_id=%s (budget=%.3fs, timeout=%.3fs)",
+                    "LLM generation timed out for user_id=%s (budget=%.3fs, timeout=%.3fs)",
                     user_id,
                     remaining_budget,
                     llm_timeout,
@@ -747,9 +720,6 @@ class HokuChatbot:
 
             # ---------------------------------------------------------------
             # Step 8: Post-LLM Safety Verification (Day 7)
-            # 3-Strike Safety Retry Loop
-            # Day 8: Enforce safety_check budget
-            # SAFETY CRITICAL — Never skip safety checks, even under tight budgets
             # ---------------------------------------------------------------
             safety_start = time.perf_counter()
             safe_reply, safety_violations, safety_severity = SafetyGuardrails.apply_3_strike_safety(
@@ -772,27 +742,26 @@ class HokuChatbot:
             if safety_severity == "high":
                 metrics.increment_3_strike_fallback()
 
-            # Use the safety-processed reply
             parsed["reply"] = safe_reply
 
             # ---------------------------------------------------------------
             # Step 9: Cache Persistence
-            # Day 8: Store response in cache if safe and non-emergency
-            # CLINICAL SAFETY: Never cache emergency or symptom queries
-            # Saved execution time: ~0ms (async background operation)
             # ---------------------------------------------------------------
             cache_persist_start = time.perf_counter()
             if self.response_cache.should_cache(intent.value, is_emergency=False):
                 response_to_cache = json.dumps({
                     "reply": parsed.get("reply", ""),
                     "suggestedSpecialist": parsed.get("suggestedSpecialist"),
-                    "severity": parsed.get("severity", "unknown"),
-                    "shouldSeeDoctor": parsed.get("shouldSeeDoctor", True),
+                    "severity": parsed.get("severity") or "unknown",
+                    "shouldSeeDoctor": parsed.get("shouldSeeDoctor")
+                    if parsed.get("shouldSeeDoctor") is not None
+                    else True,
                 })
+                cache_key_history = [] if intent == IntentEnum.GENERAL else last_3_messages
                 self.response_cache.set(
                     message=message,
                     intent=intent.value,
-                    last_3_messages=last_3_messages,
+                    last_3_messages=cache_key_history,
                     response=response_to_cache,
                     is_emergency=False,
                 )
@@ -801,20 +770,20 @@ class HokuChatbot:
             optimizer.enforce_budget("db_persist", cache_persist_start)
 
             response: Dict[str, Any] = {
-                "reply": parsed.get("reply", self._fallback_response()["reply"]),
+                "reply": parsed.get("reply") or self._fallback_response()["reply"],
                 "suggestedSpecialist": parsed.get("suggestedSpecialist"),
-                "severity": parsed.get("severity", "unknown"),
-                "shouldSeeDoctor": parsed.get("shouldSeeDoctor", True),
+                "severity": parsed.get("severity") or "unknown",
+                "shouldSeeDoctor": parsed.get("shouldSeeDoctor")
+                if parsed.get("shouldSeeDoctor") is not None
+                else True,
                 "intent": intent.value,
                 "confidence": confidence,
                 "doctor_suggestion": doctor_suggestion.model_dump() if doctor_suggestion else None,
             }
 
-            # Record final latency
             total_elapsed = time.perf_counter() - overall_start
             metrics.record_latency("/api/ai/chat", total_elapsed)
 
-            # Log timing breakdown for performance analysis
             logger.info(
                 "Timing breakdown for user_id=%s: total=%.3fs, "
                 "emergency=%.3fs, concurrent=%.3fs, cache=%.3fs, "
@@ -851,6 +820,63 @@ class HokuChatbot:
             return fallback
 
     @staticmethod
+    def _apply_compressed_history(memory: Any, compressed_history: Any) -> None:
+        """
+        Push compressed history back into the memory buffer the chain reads.
+        """
+        if not compressed_history or not isinstance(compressed_history, list):
+            return
+
+        try:
+            from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+        except ImportError:
+            logger.debug("langchain_core unavailable; skipping history compression")
+            return
+
+        role_map = {
+            "user": HumanMessage,
+            "human": HumanMessage,
+            "assistant": AIMessage,
+            "ai": AIMessage,
+            "system": SystemMessage,
+        }
+
+        rebuilt: List[Any] = []
+        for item in compressed_history:
+            if isinstance(item, dict):
+                message_cls = role_map.get(str(item.get("role", "")).lower())
+                content = item.get("content", "")
+                if message_cls is None or not isinstance(content, str):
+                    logger.debug(
+                        "Unrecognised compressed message role=%r; aborting compression",
+                        item.get("role"),
+                    )
+                    return
+                rebuilt.append(message_cls(content=content))
+            elif hasattr(item, "content"):
+                rebuilt.append(item)
+            else:
+                logger.debug("Unrecognised compressed message type %s; aborting", type(item))
+                return
+
+        try:
+            chat_memory = getattr(memory, "chat_memory", None)
+            if chat_memory is None or not hasattr(chat_memory, "messages"):
+                return
+            if _MagicMock is not None and isinstance(chat_memory, _MagicMock):
+                return
+
+            before = len(chat_memory.messages)
+            chat_memory.messages = rebuilt
+            logger.info(
+                "Compressed history applied to memory buffer: %d -> %d messages",
+                before,
+                len(rebuilt),
+            )
+        except Exception as exc:
+            logger.debug("Could not apply compressed history: %s", exc)
+
+    @staticmethod
     def _extract_text_from_result(result: Any) -> str:
         """Extract text from LangChain return formats."""
         if isinstance(result, str):
@@ -867,7 +893,18 @@ class HokuChatbot:
         try:
             data = json.loads(text.strip())
             if isinstance(data, dict) and "reply" in data:
-                return data
+                return {
+                    "reply": data.get("reply", ""),
+                    "suggestedSpecialist": data.get("suggestedSpecialist"),
+                    "severity": (
+                        "unknown"
+                        if data.get("severity") in (None, "null", "Null", "NULL")
+                        else data.get("severity")
+                    ),
+                    "shouldSeeDoctor": data.get("shouldSeeDoctor")
+                    if data.get("shouldSeeDoctor") is not None
+                    else True,
+                }
         except json.JSONDecodeError:
             pass
 
@@ -876,7 +913,18 @@ class HokuChatbot:
             if match:
                 data = json.loads(match.group(1))
                 if isinstance(data, dict) and "reply" in data:
-                    return data
+                    return {
+                        "reply": data.get("reply", ""),
+                        "suggestedSpecialist": data.get("suggestedSpecialist"),
+                        "severity": (
+                        "unknown"
+                        if data.get("severity") in (None, "null", "Null", "NULL")
+                        else data.get("severity")
+                    ),
+                        "shouldSeeDoctor": data.get("shouldSeeDoctor")
+                        if data.get("shouldSeeDoctor") is not None
+                        else True,
+                    }
         except (json.JSONDecodeError, AttributeError):
             pass
 
@@ -895,7 +943,8 @@ class HokuChatbot:
 
         sev_match = re.search(r'"severity"\s*:\s*"([^"]+)"', text)
         if sev_match:
-            parsed["severity"] = sev_match.group(1)
+            sev_val = sev_match.group(1)
+            parsed["severity"] = "unknown" if sev_val.lower() == "null" else sev_val
 
         doc_match = re.search(r'"shouldSeeDoctor"\s*:\s*(true|false)', text)
         if doc_match:

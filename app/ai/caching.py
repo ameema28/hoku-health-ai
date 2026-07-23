@@ -43,6 +43,21 @@ class ResponseCache:
 
     DEFAULT_TTL: int = 3600  # 1 hour
 
+    # Day 8.1: intents whose answers do NOT depend on conversation position.
+    # "What services do you offer?" has the same correct answer on turn 1 and
+    # turn 9, so its cache key must not include history.
+    #
+    # Why this matters: the key previously always mixed in the last 3 turns,
+    # but every turn is persisted to chat_history, so the history differs on
+    # each request. An identical repeated question therefore produced a
+    # DIFFERENT key every time and the cache could never register a hit —
+    # making the whole Day 8 caching layer dead weight in production.
+    #
+    # Symptom/emergency intents are excluded from caching entirely by
+    # should_cache(), so this relaxation cannot leak personalised clinical
+    # advice between conversational contexts.
+    CONTEXT_FREE_INTENTS: frozenset = frozenset({"general"})
+
     def __init__(self) -> None:
         """Initialize the in-memory cache storage."""
         self._cache: dict[str, dict] = {}
@@ -73,17 +88,29 @@ class ResponseCache:
         normalized_message = message.strip().lower()
         normalized_intent = (intent or "").strip().lower()
 
-        # Serialize last 3 messages into a stable string
-        context_parts = []
-        for msg in (last_3_messages or [])[-3:]:
-            if isinstance(msg, dict):
-                role = msg.get("role", "")
-                content = str(msg.get("content", "")).strip().lower()
+        # Day 8.1: context-free intents hash on (message, intent) only.
+        if normalized_intent in self.CONTEXT_FREE_INTENTS:
+            context_str = ""
+        else:
+            # Serialize last 3 messages into a stable string.
+            # Day 8.1: LangChain message objects are now normalised via their
+            # .type/.content attributes rather than str(msg). repr() of a
+            # BaseMessage embeds additional_kwargs/response_metadata, which is
+            # not guaranteed stable across langchain versions and would
+            # silently invalidate every key on upgrade.
+            context_parts = []
+            for msg in (last_3_messages or [])[-3:]:
+                if isinstance(msg, dict):
+                    role = msg.get("role", "")
+                    content = str(msg.get("content", "")).strip().lower()
+                elif hasattr(msg, "content"):
+                    role = str(getattr(msg, "type", "")).strip().lower()
+                    content = str(getattr(msg, "content", "")).strip().lower()
+                else:
+                    role, content = "", str(msg).strip().lower()
                 context_parts.append(f"{role}:{content}")
-            else:
-                context_parts.append(str(msg).strip().lower())
 
-        context_str = "|".join(context_parts)
+            context_str = "|".join(context_parts)
 
         # Build composite key string
         key_source = f"{normalized_message}::{normalized_intent}::{context_str}"

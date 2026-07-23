@@ -58,9 +58,12 @@ class TestResponseOptimizer:
         assert optimizer.MAX_TOTAL_TIME == 3.5
 
     def test_time_budgets_sum_to_max(self, optimizer):
-        """All stage budgets must sum to MAX_TOTAL_TIME."""
-        total_budget = sum(optimizer.TIME_BUDGETS.values())
-        assert total_budget == pytest.approx(optimizer.MAX_TOTAL_TIME, rel=1e-9)
+        """Concurrent-aware serial time must fit within MAX_TOTAL_TIME."""
+        # Day 8.1: intent_classify, memory_load, and rag_retrieve run
+        # concurrently, so their wall-clock cost is max(), not sum().
+        # expected_serial_time() accounts for this overlap.
+        total_budget = optimizer.expected_serial_time()
+        assert total_budget <= optimizer.MAX_TOTAL_TIME
 
     def test_enforce_budget_within_limit(self, optimizer):
         """Budget check passes when within allocated time."""
@@ -383,6 +386,8 @@ class TestLLMFactory:
         """Fast LLM uses correct model and conservative token limit."""
         mock_ai_settings.groq_api_key = "test-key"
         mock_ai_settings.GROQ_FAST_MODEL = "llama-3.1-8b-instant"
+        # Day 8.1: request_timeout is derived from INTENT_CLASSIFICATION_TIMEOUT
+        mock_ai_settings.INTENT_CLASSIFICATION_TIMEOUT = 1.0
 
         llm = LLMFactory.get_fast_llm()
         assert llm is not None
@@ -396,19 +401,22 @@ class TestLLMFactory:
     @patch("app.ai.llm_optimizer.ChatGroq")
     @patch("app.ai.llm_optimizer.ai_settings")
     def test_get_main_llm_configuration(self, mock_ai_settings, mock_chatgroq):
-        """Main LLM uses correct model and reduced token limit."""
+        """Main LLM uses correct model and full token limit from settings."""
         mock_ai_settings.groq_api_key = "test-key"
         mock_ai_settings.GROQ_MAIN_MODEL = "llama-3.3-70b-versatile"
         mock_ai_settings.TEMPERATURE = 0.3
+        # Day 8.1: max_tokens and request_timeout are derived from ai_settings
+        mock_ai_settings.MAX_TOKENS = 512
+        mock_ai_settings.GROQ_TIMEOUT_SECONDS = 3.5
 
         llm = LLMFactory.get_main_llm()
         assert llm is not None
         mock_chatgroq.assert_called_once()
         call_kwargs = mock_chatgroq.call_args.kwargs
         assert call_kwargs["model"] == "llama-3.3-70b-versatile"
-        assert call_kwargs["max_tokens"] == 300
+        assert call_kwargs["max_tokens"] == 512
         assert call_kwargs["temperature"] == 0.3
-        assert call_kwargs["request_timeout"] == 2.5
+        assert call_kwargs["request_timeout"] == 3.5
 
     @patch("app.ai.llm_optimizer.LANGCHAIN_AVAILABLE", False)
     def test_get_fast_llm_unavailable_when_langchain_missing(self):

@@ -83,7 +83,13 @@ class LLMFactory:
     """
 
     @staticmethod
-    def get_fast_llm() -> Optional[Any]:
+    def get_fast_llm(
+        *,
+        api_key: Optional[str] = None,
+        model: Optional[str] = None,
+        max_tokens: Optional[int] = None,
+        request_timeout: Optional[float] = None,
+    ) -> Optional[Any]:
         """
         Create a fast, low-cost LLM for intent classification and
         other simple NLP tasks.
@@ -103,22 +109,43 @@ class LLMFactory:
             logger.warning("Fast LLM unavailable: LangChain/Groq not installed")
             return None
 
+        # Day 8.1: every value is an explicit override falling back to
+        # ai_settings. Callers that hold their OWN settings binding (e.g.
+        # HokuChatbot, whose ai_settings is what unit tests patch) must pass
+        # them in — otherwise this factory silently reads the real .env and
+        # bypasses the caller's configuration. That defect made the chatbot
+        # suite issue live Groq requests.
+        resolved_model = model if model is not None else ai_settings.GROQ_FAST_MODEL
+        resolved_key = api_key if api_key is not None else ai_settings.groq_api_key
+        resolved_max_tokens = max_tokens if max_tokens is not None else 150
+        resolved_timeout = (
+            request_timeout if request_timeout is not None
+            else ai_settings.INTENT_CLASSIFICATION_TIMEOUT
+        )
+
         try:
             llm = ChatGroq(
-                model=ai_settings.GROQ_FAST_MODEL,
-                api_key=ai_settings.groq_api_key,
+                model=resolved_model,
+                api_key=resolved_key,
                 temperature=0.0,  # Deterministic for classification
-                max_tokens=150,   # Minimal: just JSON with intent + confidence
-                request_timeout=1.0,  # Hard 1s cutoff
+                max_tokens=resolved_max_tokens,  # Minimal: intent + confidence JSON
+                request_timeout=resolved_timeout,
             )
-            logger.debug("Fast LLM created: %s", ai_settings.GROQ_FAST_MODEL)
+            logger.debug("Fast LLM created: %s", resolved_model)
             return llm
         except Exception as exc:
             logger.warning("Failed to create fast LLM: %s", exc)
             return None
 
     @staticmethod
-    def get_main_llm() -> Optional[Any]:
+    def get_main_llm(
+        *,
+        api_key: Optional[str] = None,
+        model: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        request_timeout: Optional[float] = None,
+    ) -> Optional[Any]:
         """
         Create the main high-quality LLM for patient-facing responses.
 
@@ -137,19 +164,40 @@ class LLMFactory:
             logger.warning("Main LLM unavailable: LangChain/Groq not installed")
             return None
 
-        if not ai_settings.groq_api_key:
+        # Day 8.1: resolve overrides before the guard, so a caller-supplied
+        # key is honoured (see get_fast_llm for why this matters).
+        resolved_model = model if model is not None else ai_settings.GROQ_MAIN_MODEL
+        resolved_key = api_key if api_key is not None else ai_settings.groq_api_key
+        resolved_temperature = (
+            temperature if temperature is not None else ai_settings.TEMPERATURE
+        )
+        resolved_max_tokens = (
+            max_tokens if max_tokens is not None else ai_settings.MAX_TOKENS
+        )
+        resolved_timeout = (
+            request_timeout if request_timeout is not None
+            else ai_settings.GROQ_TIMEOUT_SECONDS
+        )
+
+        if not resolved_key:
             logger.warning("Main LLM unavailable: GROQ_API_KEY is empty")
             return None
 
         try:
+            # Day 8.1: max_tokens now reads ai_settings.MAX_TOKENS (512).
+            # The hardcoded 300 was unreachable dead config (chatbot.py built
+            # its own ChatGroq at 512), and enabling it as-is would have
+            # truncated the mandatory JSON envelope mid-object on longer
+            # replies — _parse_llm_output would then fall through to the
+            # plain-text branch and lose suggestedSpecialist/severity.
             llm = ChatGroq(
-                model=ai_settings.GROQ_MAIN_MODEL,
-                api_key=ai_settings.groq_api_key,
-                temperature=ai_settings.TEMPERATURE,
-                max_tokens=300,  # Compressed from 512 to save latency
-                request_timeout=2.5,  # Hard 2.5s cutoff
+                model=resolved_model,
+                api_key=resolved_key,
+                temperature=resolved_temperature,
+                max_tokens=resolved_max_tokens,
+                request_timeout=resolved_timeout,
             )
-            logger.debug("Main LLM created: %s", ai_settings.GROQ_MAIN_MODEL)
+            logger.debug("Main LLM created: %s", resolved_model)
             return llm
         except Exception as exc:
             logger.warning("Failed to create main LLM: %s", exc)
@@ -230,7 +278,10 @@ class LLMFactory:
 
             compressed.append(msg)
 
-        original_tokens_estimate = sum(len(str(_msg_to_dict(m).get("content", ""))) for m in history if _msg_to_dict(m)) // 4
+        # Day 8.1: `normalized` is already the parsed form of `history`;
+        # the previous expression re-ran _msg_to_dict up to 3x per message
+        # purely to build a log line.
+        original_tokens_estimate = sum(len(str(m.get("content", ""))) for m in normalized) // 4
         compressed_tokens_estimate = sum(len(str(m.get("content", ""))) for m in compressed) // 4
 
         logger.info(

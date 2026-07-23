@@ -139,6 +139,9 @@ async def chat(
             result["severity"] = "severe"
             result["shouldSeeDoctor"] = True
 
+        # Defensive: ensure severity is never None before Pydantic validation
+        if result.get("severity") is None:
+            result["severity"] = "unknown"
         return ChatMessageResponse(**result)
 
     except HTTPException:

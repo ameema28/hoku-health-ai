@@ -73,6 +73,20 @@ def seed_sample_doctors(db: Session) -> None:
             is_available=True,
             license_number="PSY-PAK-2024-005",
         ),
+        Doctor(
+            user_id=None,
+            specialty="Neurologist",
+            experience_years=14,
+            is_available=True,
+            license_number="NEU-PAK-2024-006",
+        ),
+        Doctor(
+            user_id=None,
+            specialty="Pulmonologist",
+            experience_years=11,
+            is_available=True,
+            license_number="PUL-PAK-2024-007",
+        ),
     ]
 
     db.add_all(sample_doctors)

@@ -25,6 +25,7 @@ Design notes:
 
 import logging
 import time
+from contextlib import contextmanager
 from typing import Any, Dict, List, Optional
 
 from langchain_core.documents import Document
@@ -160,6 +161,33 @@ class HokuRAG:
     # ------------------------------------------------------------------
     # Retrieval
     # ------------------------------------------------------------------
+    @contextmanager
+    def _search_session(self):
+        """
+        Yield a Session that is safe to use from a worker thread.
+
+        Day 8.1 concurrency fix. HokuRAG is a lazy singleton on HokuChatbot,
+        and build_context() is executed via asyncio.to_thread(). The instance
+        previously held ONE long-lived Session in self._db and used it for
+        every search, so two concurrent /api/ai/chat requests would drive the
+        same SQLAlchemy Session from two different threads. Session is
+        explicitly not thread-safe; this surfaces as sporadic
+        "connection already in use" / cursor errors under load rather than a
+        clean failure, which makes it very hard to trace.
+
+        An externally-injected session (tests, scripts) is used as-is, since
+        the caller owns its lifecycle and is responsible for its threading.
+        """
+        if not self._owns_session:
+            yield self._db
+            return
+
+        session = SessionLocal()
+        try:
+            yield session
+        finally:
+            session.close()
+
     def similarity_search(self, query: str, k: int = 3) -> List[Document]:
         """
         Return the top-k most similar FAQ documents to the query.
@@ -170,6 +198,18 @@ class HokuRAG:
         """
         start_time = time.perf_counter()
         query_embedding = self.embedding_manager.get_embedding(query)
+
+        # Day 8.1: EmbeddingManager returns an all-zero vector when
+        # sentence-transformers is unavailable. _cosine_similarity then returns
+        # 0.0 for EVERY document, so retrieval silently degrades to "no match"
+        # and the only clue is a lone WARNING at startup. Fail loudly here.
+        if not any(query_embedding):
+            logger.error(
+                "RAG disabled: embedding model returned a zero-vector. "
+                "Install sentence-transformers (pip install sentence-transformers) "
+                "— all similarity scores will be 0.0 until then."
+            )
+            return []
 
         results: List[Document] = []
         scores: List[float] = []
@@ -183,19 +223,24 @@ class HokuRAG:
                     .order_by(VectorStore.embedding.cosine_distance(query_embedding))
                     .limit(k)
                 )
-                rows = list(self._db.execute(stmt).scalars().all())
+                with self._search_session() as session:
+                    rows = list(session.execute(stmt).scalars().all())
                 for row in rows:
                     distance = _cosine_distance_placeholder(row.embedding, query_embedding)
                     score = 1.0 - distance
                     results.append(
                         Document(
                             page_content=row.content,
-                            metadata={**row.doc_metadata, "category": row.category, "score": score},
+                            # Day 8.1: doc_metadata is nullable in the schema;
+                            # {**None} raises TypeError and the except-block
+                            # below would swallow it as "search failed".
+                            metadata={**(row.doc_metadata or {}), "category": row.category, "score": score},
                         )
                     )
                     scores.append(score)
             else:
-                all_rows = list(self._db.execute(select(VectorStore)).scalars().all())
+                with self._search_session() as session:
+                    all_rows = list(session.execute(select(VectorStore)).scalars().all())
                 scored = [
                     (row, _cosine_similarity(row.embedding or [], query_embedding))
                     for row in all_rows
@@ -205,7 +250,7 @@ class HokuRAG:
                     results.append(
                         Document(
                             page_content=row.content,
-                            metadata={**row.doc_metadata, "category": row.category, "score": score},
+                            metadata={**(row.doc_metadata or {}), "category": row.category, "score": score},
                         )
                     )
                     scores.append(score)
@@ -244,6 +289,15 @@ class HokuRAG:
                 effective_threshold,
             )
             return ""
+
+        # Day 8.1: previously only the REJECT path logged, so a working
+        # retrieval was indistinguishable from a silently disabled one.
+        logger.info(
+            "RAG grounding ACCEPTED: top score %.3f >= threshold %.3f (%d docs)",
+            top_score,
+            effective_threshold,
+            len(results),
+        )
 
         context_parts = []
         for doc in results:

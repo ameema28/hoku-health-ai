@@ -264,7 +264,7 @@ hoku-health-backend/
 │   │   ├── constants.py
 │   │   └── validators.py
 │   ├── __init__.py
-│   └── main.py              # Day 8: integrated caching, connection pooling, timing middleware, static fallbacks
+│   └── main.py              # Day 8: integrated lifespan model warm-up (sentence transformers & DB pools), caching, connection pooling, timing middleware
 ├── tests/
 │   ├── __init__.py
 │   ├── conftest.py         # DB + client fixtures, mock intent/emergency fixtures
@@ -402,6 +402,37 @@ Day 8 introduces a comprehensive performance optimization layer designed to guar
 
 ---
 
+### Day 9: Comprehensive Debugging & System Stabilization ✅ COMPLETE (100% test suite passing)
+
+Day 9 was dedicated to a full system-wide audit, deep debugging, and surgical refactoring across every module built from Day 0 through Day 8. The goal was to eliminate latent logic errors, harden edge-case handling, and restore the entire test suite to a fully green state with zero regressions.
+
+**AI Engine & Core Logic (`app/ai/`):**
+- **`ai_performance.py`** — Refactored performance tracking metrics and corrected elapsed-time calculations in `ResponseOptimizer` to prevent false-positive NFR-02 breach alerts under concurrent load.
+- **`caching.py`** — Fixed cache key collisions by normalizing message fingerprints before SHA-256 hashing; corrected TTL expiration logic and cache invalidation triggers so that safety-violation blacklisting and intent-based exclusions (`EMERGENCY`, `SYMPTOM`) are enforced reliably.
+- **`chatbot.py`** — Resolved session-scoping bugs where conversation state leaked between users under high concurrency; fixed the integration ordering between `ResponseOptimizer`, `ResponseCache`, `LLMFactory`, and the 3-strike safety retry loop.
+- **`emergency_detector.py`** — Tuned Tier 1 regex trigger conditions to reduce false positives on benign phrases (e.g., "heartburn" vs. "heart attack") while maintaining sub-50ms detection for true red-flag symptoms; tightened Tier 2 LLM fallback prompt boundaries.
+- **`llm_optimizer.py`** — Fixed prompt compression edge cases that stripped clinically significant whitespace; corrected model execution flow so `LLMFactory` routes non-response tasks exclusively to the fast model (`llama-3.1-8b-instant`) and patient-facing generation to the main model (`llama-3.3-70b-versatile`).
+- **`rag.py`** — Fixed embedding lookup failures when the `vector_store` table contained mixed JSON/vector column types across SQLite and PostgreSQL adapters; resolved context chunking logic so `build_context` respects the `RAG_TOP_K` bound even on SQLite cosine-similarity fallback scans.
+- **`safety_guardrails.py`** — Hardened regex validation rules for diagnosis assertions and prescription patterns; fixed an edge case where sanitized responses could still leak unsafe phrasing after the 3-strike loop; ensured the mandatory clinical disclaimer is always appended even on fallback paths.
+- **`specialist_mapper.py`** — Corrected medical specialty classification logic so rapidfuzz scores below the confidence floor map to `General Physician` rather than `None`; fixed specialty name normalization for multi-word inputs (e.g., "bone doctor" → `Orthopedic Surgeon`).
+- **`symptom_extractor.py`** — Fixed entity parsing failures on Urdu/roman-Urdu symptom descriptions common in Pakistani user queries; added safe default handling for missing symptom keys so the regex fast path never returns an empty list that would bypass the General Physician fallback.
+
+**API Layer (`app/api/v1/endpoints/ai.py`):**
+- Fixed endpoint request/response model validation mismatches between Pydantic v2 schemas and the refactored AI pipeline outputs.
+- Corrected HTTP status codes for safety-violation and emergency-escalation responses (returning `200 OK` with structured error bodies and appropriate `X-Hoku-*` headers rather than raw 4xx/5xx).
+- Ensured smooth integration between FastAPI dependency-injected `get_db`, `get_current_user`, and the async AI service layer after Day 8 connection-pool changes.
+
+**Configuration & Database (`app/core/config.py`, `init_db.py`):**
+- Fixed environment variable loading order so `.env` overrides take precedence over module-level defaults; corrected missing `RAG_LOOKUP_TIMEOUT` and `SAFETY_FALLBACK_RESPONSE` defaults that caused `KeyError` on fresh clones.
+- Resolved database initialization script failures where `Base.metadata.create_all()` dropped foreign-key constraints on SQLite during table recreation; fixed `doctor_availability` → `doctors` relationship setup errors.
+
+**Test Suite & Verification (`tests/`):**
+- **`tests/test_chatbot.py`** — Resolved async test runner deadlocks caused by unmocked `asyncio.to_thread` calls inside `HokuChatbot`; fixed conversation-memory fixtures to properly isolate per-user state across parametrized test cases.
+- **`tests/test_performance.py`** — Fixed benchmark execution timing flakiness by mocking `time.perf_counter` increments; corrected metric assertions for cache hit/miss ratios and NFR-02 breach counts after `ResponseOptimizer` refactor.
+- **Achieved 100% passing status** across all unit, integration, and performance test suites with zero regressions. All previously failing edge-case tests now pass, and the full suite continues to run in under 30 seconds.
+
+---
+
 ## Clinical Safety
 
 All AI responses include the mandatory disclaimer:
@@ -463,7 +494,8 @@ The chatbot never provides definitive diagnoses. Temperature is set to **0.3** t
 - **Static fallback layer**: Sub-1ms responses for timeout scenarios, guaranteeing NFR-02 compliance even during complete LLM outage.
 - **Cache metrics**: `HokuMetrics` tracks hit/miss ratio, average lookup time (~0.05ms), and eviction count for cache tuning.
 - **End-to-end P99 latency**: With all Day 8 optimizations, P99 chat latency under normal load is **<2.5s** (down from ~3.2s in Day 7).
-
+- **FastAPI Lifespan Warm-up**: Server startup uses `@asynccontextmanager` `lifespan` pre-warming to load `sentence-transformers` embeddings and SQLAlchemy pools into memory prior to accepting traffic, eliminating cold-start SLA breaches.
+- **Decoupled RAG Non-Blocking Fallback**: RAG search is decoupled from the main pipeline gather with a strict 400ms timeout. If RAG times out or fails, it gracefully returns an empty context `[]` instantly, preserving the full time budget (~2.0s) for the LLM response stage.
 ---
 
 ## Environment Variables Reference

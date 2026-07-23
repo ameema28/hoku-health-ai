@@ -13,22 +13,28 @@ import json
 import logging
 import re
 import time
-from typing import Any, Dict, List, Optional
+from typing import List
 
 from app.ai.config import ai_settings
 from app.ai.specialist_mapper import SpecialistMapper
 
 logger = logging.getLogger(__name__)
 
-# Pre-compile regex for all known symptom keywords for O(n) matching
 _SYMPTOM_PATTERN = re.compile(
     r'\b(' + '|'.join(re.escape(kw) for kw in SpecialistMapper.SPECIALIST_MAP.keys()) + r')\b',
     re.IGNORECASE,
 )
 
+_MEDICAL_HINTS_PATTERN = re.compile(
+    r'\b(feel|feeling|hurt|pain|ache|sick|unwell|dizzy|nausea|tired|'
+    r'fatigue|weak|fever|cough|rash|swelling|bruise|wound|burn|'
+    r'fracture|sprain|bleed|vomit|diarrhea|headache|chest|stomach|'
+    r'back|leg|arm|throat|ear|eye|heart|lung|symptom|discomfort)\b',
+    re.IGNORECASE,
+)
+
 
 def _normalize_symptoms(raw: List[str]) -> List[str]:
-    """Deduplicate, lowercase, and strip symptom strings."""
     seen = set()
     result = []
     for s in raw:
@@ -40,36 +46,21 @@ def _normalize_symptoms(raw: List[str]) -> List[str]:
 
 
 def _regex_extract_symptoms(text: str) -> List[str]:
-    """Fast regex extraction of known symptom keywords from text."""
     if not text or not isinstance(text, str):
         return []
-
     matches = _SYMPTOM_PATTERN.findall(text)
-    normalized = _normalize_symptoms(matches)
-    logger.debug("Regex extracted %d symptoms from text: %s", len(normalized), normalized)
-    return normalized
+    return _normalize_symptoms(matches)
 
 
 def _is_complex_text(text: str) -> bool:
-    """
-    Heuristic: determine if text is complex enough to warrant LLM extraction.
-
-    Complex = long sentences, no obvious symptom keywords, or narrative style.
-    """
     if len(text) > 200:
         return True
-    # If regex found nothing, text might have implied symptoms
     if not _regex_extract_symptoms(text):
-        return True
+        return bool(_MEDICAL_HINTS_PATTERN.search(text))
     return False
 
 
-async def _llm_extract_symptoms(text: str) -> List[str]:
-    """
-    Fallback LLM-based symptom extraction using Groq.
-
-    Returns JSON {"symptoms": [...]} or empty list on failure.
-    """
+def _llm_extract_symptoms_sync(text: str) -> List[str]:
     try:
         from langchain_groq import ChatGroq
         from langchain_core.messages import HumanMessage, SystemMessage
@@ -82,7 +73,6 @@ async def _llm_extract_symptoms(text: str) -> List[str]:
             request_timeout=ai_settings.SYMPTOM_EXTRACTION_TIMEOUT,
         )
 
-        # Use proper message format for ChatGroq in LangChain 0.2.6
         messages = [
             SystemMessage(content=(
                 "You are a medical symptom extractor. Extract only the symptoms "
@@ -93,8 +83,7 @@ async def _llm_extract_symptoms(text: str) -> List[str]:
             HumanMessage(content=f'Patient message: "{text}"'),
         ]
 
-        # Direct LLM invocation with message list
-        result = await asyncio.to_thread(llm.invoke, messages)
+        result = llm.invoke(messages)
 
         raw_text = ""
         if isinstance(result, str):
@@ -107,7 +96,6 @@ async def _llm_extract_symptoms(text: str) -> List[str]:
                     raw_text = result[key]
                     break
 
-        # Parse JSON
         cleaned = raw_text.strip()
         if cleaned.startswith("```"):
             cleaned = re.sub(r'^```(?:json)?\s*', '', cleaned, flags=re.IGNORECASE)
@@ -117,56 +105,44 @@ async def _llm_extract_symptoms(text: str) -> List[str]:
         if isinstance(data, dict) and "symptoms" in data:
             symptoms = data["symptoms"]
             if isinstance(symptoms, list):
-                normalized = _normalize_symptoms(symptoms)
-                logger.info("LLM extracted symptoms: %s", normalized)
-                return normalized
+                return _normalize_symptoms(symptoms)
 
-    except asyncio.TimeoutError:
-        logger.warning("LLM symptom extraction timed out")
     except Exception as exc:
-        logger.warning("LLM symptom extraction failed: %s", exc)
+        logger.debug("LLM symptom extraction failed: %s", exc)
 
     return []
 
 
+async def _llm_extract_symptoms(text: str) -> List[str]:
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_llm_extract_symptoms_sync, text),
+            timeout=ai_settings.SYMPTOM_EXTRACTION_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        logger.warning(
+            "Symptom extraction timed out after %.3fs",
+            ai_settings.SYMPTOM_EXTRACTION_TIMEOUT,
+        )
+        return []
+    except Exception as exc:
+        logger.warning("Symptom extraction error: %s", exc)
+        return []
+
+
 async def extract_symptoms_from_text(text: str) -> List[str]:
-    """
-    Extract symptoms from patient text using fast regex or LLM fallback.
-
-    Strategy:
-    1. Try regex keyword matching first (< 10ms).
-    2. If regex is empty AND text is complex, try LLM with 0.2s timeout.
-    3. If LLM fails/times out, default to ["fever"] -> General Physician.
-    4. Normalize output: lowercase, stripped, deduplicated.
-
-    Args:
-        text: Raw or sanitized patient message.
-
-    Returns:
-        List[str]: Extracted symptom keywords (never empty on fallback).
-    """
     start_time = time.perf_counter()
 
-    # ------------------------------------------------------------------
-    # FAST PATH: Regex keyword matching
-    # ------------------------------------------------------------------
     regex_symptoms = _regex_extract_symptoms(text)
     if regex_symptoms:
         elapsed = time.perf_counter() - start_time
         logger.info("Fast-path symptom extraction: %s (%.3fms)", regex_symptoms, elapsed * 1000)
         return regex_symptoms
 
-    # ------------------------------------------------------------------
-    # LLM FALLBACK: Only for complex text without obvious keywords
-    # ------------------------------------------------------------------
     if _is_complex_text(text):
         logger.info("No regex matches, attempting LLM symptom extraction for complex text")
         try:
-            llm_task = asyncio.create_task(_llm_extract_symptoms(text))
-            llm_symptoms = await asyncio.wait_for(
-                llm_task,
-                timeout=ai_settings.SYMPTOM_EXTRACTION_TIMEOUT,
-            )
+            llm_symptoms = await _llm_extract_symptoms(text)
             if llm_symptoms:
                 elapsed = time.perf_counter() - start_time
                 logger.info("LLM symptom extraction: %s (%.3fms)", llm_symptoms, elapsed * 1000)
@@ -179,8 +155,5 @@ async def extract_symptoms_from_text(text: str) -> List[str]:
         except Exception as exc:
             logger.warning("Symptom extraction error: %s", exc)
 
-    # ------------------------------------------------------------------
-    # SAFETY DEFAULT: Never return empty — map to General Physician
-    # ------------------------------------------------------------------
     logger.info("No symptoms extracted, defaulting to ['fever'] -> General Physician")
     return ["fever"]
