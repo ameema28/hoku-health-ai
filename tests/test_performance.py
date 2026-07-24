@@ -13,7 +13,7 @@ All external API calls are mocked — no real Groq usage.
 
 import asyncio
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 

@@ -8,9 +8,8 @@ context building) rather than exercising a live PostgreSQL+pgvector
 connection.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import pytest
 from langchain_core.documents import Document
 
 from app.ai.embeddings import EmbeddingManager

@@ -98,7 +98,7 @@ class TestHokuConversationMemory:
     def test_load_memory_only_complete_turns(self, memory_manager, mock_db):
         """Test that entries with NULL ai_response are not loaded."""
         entry_complete = MagicMock(message="Complete", ai_response="Response")
-        entry_incomplete = MagicMock(message="Incomplete", ai_response=None)
+        MagicMock(message="Incomplete", ai_response=None)
 
         with patch(
             "app.ai.memory.get_recent_chat_history",

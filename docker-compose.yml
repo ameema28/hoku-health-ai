@@ -1,0 +1,106 @@
+# =============================================================================
+# Hoku Health Care - Local / staging stack (Day 10)
+#
+#   docker compose up --build
+#   docker compose exec app python -m app.scripts.deploy_check
+#   docker compose exec app python -m app.scripts.seed_faqs
+#
+# The postgres image is pgvector/pgvector:pg16, which ships the vector
+# extension pre-compiled. init-pgvector.sql (below, generated inline)
+# enables it on first boot so app/ai/rag.py takes the native pgvector
+# path instead of the SQLite cosine-similarity fallback.
+# =============================================================================
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: hoku-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-hoku}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hoku_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-hoku_health}
+      # Deterministic collation so ORDER BY on doctor names is stable
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - hoku_pgdata:/var/lib/postgresql/data
+      - ./scripts/init-pgvector.sql:/docker-entrypoint-initdb.d/00-pgvector.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hoku} -d ${POSTGRES_DB:-hoku_health}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - hoku-net
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PRELOAD_EMBEDDINGS: "true"
+    container_name: hoku-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # ---- Core (app/core/config.py) ----------------------------------
+      DATABASE_URL: postgresql://${POSTGRES_USER:-hoku}:${POSTGRES_PASSWORD:-hoku_dev_password}@postgres:5432/${POSTGRES_DB:-hoku_health}
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      ALGORITHM: ${ALGORITHM:-HS256}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DEBUG: ${DEBUG:-false}
+
+      # ---- Groq / AI (app/ai/config.py) -------------------------------
+      GROQ_API_KEY: ${GROQ_API_KEY:?GROQ_API_KEY must be set in .env}
+      GROQ_FAST_MODEL: ${GROQ_FAST_MODEL:-llama-3.1-8b-instant}
+      GROQ_MAIN_MODEL: ${GROQ_MAIN_MODEL:-llama-3.3-70b-versatile}
+      TEMPERATURE: ${TEMPERATURE:-0.3}
+      MAX_TOKENS: ${MAX_TOKENS:-512}
+      GROQ_TIMEOUT_SECONDS: ${GROQ_TIMEOUT_SECONDS:-3.5}
+
+      # ---- RAG (Day 5) ------------------------------------------------
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
+      VECTOR_DIMENSION: ${VECTOR_DIMENSION:-384}
+      RAG_SIMILARITY_THRESHOLD: ${RAG_SIMILARITY_THRESHOLD:-0.35}
+      RAG_TOP_K: ${RAG_TOP_K:-3}
+      COLLECTION_NAME: ${COLLECTION_NAME:-hoku_health_faqs}
+      RAG_LOOKUP_TIMEOUT: ${RAG_LOOKUP_TIMEOUT:-0.5}
+
+      # ---- Day 8 performance ------------------------------------------
+      RESPONSE_CACHE_ENABLED: ${RESPONSE_CACHE_ENABLED:-true}
+      RESPONSE_CACHE_TTL_SECONDS: ${RESPONSE_CACHE_TTL_SECONDS:-300}
+      CACHE_EXCLUDE_INTENTS: ${CACHE_EXCLUDE_INTENTS:-emergency,symptom}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-20}
+
+      # ---- Day 10 observability ---------------------------------------
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      METRICS_ENABLED: ${METRICS_ENABLED:-true}
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      RATE_LIMIT_REQUESTS_PER_MINUTE: ${RATE_LIMIT_REQUESTS_PER_MINUTE:-5}
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-http://localhost:5173,http://localhost:3000}
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8000/api/ai/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    networks:
+      - hoku-net
+
+volumes:
+  hoku_pgdata:
+    driver: local
+
+networks:
+  hoku-net:
+    driver: bridge

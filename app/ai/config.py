@@ -22,7 +22,6 @@ Day 8 additions:
 """
 
 import logging
-from typing import Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 

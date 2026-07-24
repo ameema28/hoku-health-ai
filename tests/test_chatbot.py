@@ -21,7 +21,6 @@ now fails at test time, not on Swagger.
 Rule for this module: never hand-roll `MagicMock()` for a LangChain object.
 """
 
-import inspect
 import json
 import time
 from unittest.mock import MagicMock, PropertyMock, create_autospec, patch
@@ -210,7 +209,7 @@ class TestGetResponse:
             MockMem.return_value.load_memory.return_value = mock_memory
             with patch("app.ai.chatbot.LLMChain", return_value=mock_llm_chain):
                 start = time.perf_counter()
-                result = await chatbot.get_response("I have a headache", user_id=1, db=mock_db)
+                await chatbot.get_response("I have a headache", user_id=1, db=mock_db)
                 elapsed = time.perf_counter() - start
                 assert elapsed < 4.0
 

@@ -21,7 +21,7 @@ import pytest
 from app.ai.config import ai_settings
 from app.ai.emergency_detector import EmergencyDetector
 from app.ai.safety_guardrails import SafetyGuardrails
-from app.core.monitoring import HokuMetrics, get_metrics
+from app.core.monitoring import get_metrics
 from app.utils.constants import SAFETY_DISCLAIMER
 
 

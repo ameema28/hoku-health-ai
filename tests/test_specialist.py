@@ -6,7 +6,6 @@ All Groq API calls and DB interactions are mocked.
 """
 
 import asyncio
-import json
 from unittest.mock import MagicMock, patch
 
 import pytest

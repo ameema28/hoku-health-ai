@@ -30,7 +30,7 @@ import json
 import logging
 import re
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Tuple
 
 from app.ai.config import ai_settings
 from app.utils.constants import SAFETY_DISCLAIMER

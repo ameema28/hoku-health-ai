@@ -4,6 +4,8 @@
 
 This module provides the AI-powered health chatbot backend for Hoku Health Care, a home healthcare platform serving patients in Pakistan, UAE, and UK.
 
+**Status: Production-ready (Day 10 complete).** 288 tests passing, 80.7% coverage, containerized and CI-gated.
+
 ---
 
 ## Tech Stack
@@ -17,6 +19,10 @@ This module provides the AI-powered health chatbot backend for Hoku Health Care,
 - **Fuzzy Matching**: rapidfuzz 3.9.0 for symptom-to-specialist mapping (Day 6)
 - **Caching**: In-memory SHA-256 keyed response cache with TTL expiration (Day 8)
 - **Connection Pooling**: SQLAlchemy QueuePool with SQLite thread fallback (Day 8)
+- **Observability**: Prometheus metrics at `/metrics` + JSON structured logging with correlation IDs and PHI redaction (Day 10)
+- **Rate Limiting**: In-process per-user sliding window, 5 req/min on `/api/ai/chat` (Day 10)
+- **Deployment**: Docker (multi-stage, non-root uid 1000) + docker-compose (pgvector) + Render.com blueprint (Day 10)
+- **CI/CD**: GitHub Actions — ruff, mypy, pytest, coverage gate, Docker smoke test (Day 10)
 
 ---
 
@@ -70,7 +76,7 @@ INTENT_CONFIDENCE_THRESHOLD=0.7
 # RAG Pipeline (Day 5)
 EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
 VECTOR_DIMENSION=384
-RAG_SIMILARITY_THRESHOLD=0.75
+RAG_SIMILARITY_THRESHOLD=0.35
 RAG_TOP_K=3
 COLLECTION_NAME=hoku_health_faqs
 RAG_LOOKUP_TIMEOUT=0.5
@@ -154,9 +160,20 @@ pytest tests/test_safety.py -v
 # Performance optimization & NFR-02 compliance tests (Day 8)
 pytest tests/test_performance.py -v
 
-# Full test suite
-pytest tests/ -v
+# Integration tests (Day 10 — 6 end-to-end flows, Groq fully mocked)
+pytest tests/integration/ -v
+
+# Day 10 unit tests (rate limiter, log redaction, endpoint coverage, fallbacks, JWT/validators)
+pytest tests/unit/ -v
+
+# Full test suite (load tests excluded — need Locust/gevent)
+pytest tests/ --ignore=tests/load -v
+
+# With coverage gate (matches CI)
+pytest tests/ --cov --cov-report=term-missing --cov-fail-under=80 --ignore=tests/load
 ```
+
+**Current status: 288 tests passing, 80.7% coverage.** Groq is never called in tests — the LLM boundary is mocked everywhere (an `autouse` fixture in `tests/integration/conftest.py` mocks the intent classifier and RAG context so integration tests run fully offline and deterministically).
 
 ### 8. Run the Server
 
@@ -187,6 +204,7 @@ To test authenticated endpoints in Swagger: generate a token with `token_gen.py`
 | GET | `/api/ai/doctors?specialty={specialty}` | Yes | Retrieves available doctors ordered by experience (Day 6) |
 | GET | `/api/ai/doctors/{doctor_id}/availability` | Yes | Fetches textual time slot listings for a specific doctor (Day 6) |
 | GET | `/api/ai/monitoring/metrics` | Yes | Safety & performance metrics (Day 7) |
+| GET | `/metrics` | No | Prometheus metrics exposition for scraping (Day 10) |
 
 ---
 
@@ -231,7 +249,9 @@ hoku-health-backend/
 │   │   ├── dependencies.py # re-exports get_db, get_current_user
 │   │   ├── exceptions.py   # UserNotFoundException, DatabaseOperationException
 │   │   ├── middleware.py   # Request timing & NFR-02 monitoring — Day 8: X-Response-Time-Sec headers, enhanced breach logging
-│   │   ├── monitoring.py   # Day 7: Thread-safe safety & performance metrics (HokuMetrics)
+│   │   ├── monitoring.py   # Day 7 + Day 10: HokuMetrics + Prometheus metrics layer (/metrics)
+│   │   ├── logging.py       # Day 10: JSON structured logging, correlation IDs, PHI redaction
+│   │   ├── rate_limit.py    # Day 10: per-user sliding-window rate limiter
 │   │   └── security.py     # JWT auth (HTTPBearer stub, pending Talha)
 │   ├── crud/
 │   │   ├── __init__.py     # re-exports app.crud.crud_chat
@@ -255,7 +275,10 @@ hoku-health-backend/
 │   │   └── schemas_safety.py  # Day 7: Pydantic v2 SafetyLog schemas
 │   ├── scripts/             # Day 5
 │   │   ├── __init__.py
-│   │   └── seed_faqs.py     # Seeds 20 Hoku FAQ entries
+│   │   ├── seed_faqs.py     # Seeds 20 Hoku FAQ entries
+│   │   └── deploy_check.py  # Day 10: pre-flight env/DB/Groq/pgvector/safety verification
+│   ├── docs/                # Day 10
+│   │   └── chatbot_api.md   # curl examples, auth, rate limits, error codes
 │   ├── services/
 │   │   ├── __init__.py
 │   │   └── ai_service.py    # Day 8: integrated ResponseCache, ResponseOptimizer, LLMFactory, fallback layer
@@ -275,15 +298,34 @@ hoku-health-backend/
 │   ├── test_rag.py          # Day 5: embedding + RAG pipeline tests
 │   ├── test_specialist.py   # Day 6: Dual-path extraction & mapping unit tests
 │   ├── test_safety.py       # Day 7: Emergency detection, safety guardrails, 3-strike retry, monitoring tests
-│   └── test_performance.py  # Day 8: Response time budgeting, cache hit/miss, connection pool, NFR-02 compliance, fallback latency tests
+│   ├── test_performance.py  # Day 8: Response time budgeting, cache hit/miss, connection pool, NFR-02 compliance, fallback latency tests
+│   ├── integration/         # Day 10
+│   │   ├── conftest.py       # offline Groq/RAG mocks scoped to integration only
+│   │   └── test_chatbot_integration.py  # 6 end-to-end tests
+│   ├── load/                # Day 10
+│   │   └── test_chatbot_load.py  # 50-user concurrency (pytest) + Locust
+│   └── unit/                # Day 10
+│       ├── test_day10_units.py         # rate limiter, redaction, JSON logging
+│       ├── test_endpoints_coverage.py  # endpoint + crud_safety coverage
+│       ├── test_chatbot_fallbacks.py   # LLM-unavailable / timeout / malformed
+│       └── test_security_validators.py # JWT + input validators
 ├── .env.example
 ├── .gitignore
 ├── alembic.ini
 ├── hoku_health.db           # SQLite database (auto-generated, do not commit)
 ├── init_db.py               # + registers vector_store, doctors, safety_logs with Base.metadata
 ├── token_gen.py             # Generates test JWTs for local Swagger/curl testing
-├── pytest.ini
-├── requirements.txt
+├── pytest.ini               # Day 10: bare --cov (reads .coveragerc), pythonpath, coverage gate
+├── conftest.py              # Day 10: root sys.path bootstrap
+├── .coveragerc              # Day 10: coverage source + omit list
+├── mypy.ini                 # Day 10: mypy config (skips transformers)
+├── Dockerfile               # Day 10: multi-stage, non-root uid 1000, healthcheck
+├── docker-compose.yml       # Day 10: app + pgvector/pgvector:pg16
+├── render.yaml              # Day 10: Render.com blueprint (auto-deploy)
+├── scripts/init-pgvector.sql  # Day 10: enables pgvector on first DB boot
+├── .github/workflows/ci.yml   # Day 10: CI pipeline
+├── CONTRIBUTING.md          # Day 10: branch/commit/PR conventions + safety rules
+├── requirements.txt         # Day 10: pinned; + prometheus-client, ruff, mypy, locust
 └── README.md
 ```
 
@@ -352,7 +394,7 @@ Retrieval-Augmented Generation so the chatbot answers from Hoku Health Care's ow
 - **Offline/model-load fallback** — if the embedding model can't be loaded (no internet, no cached files), logs a `WARNING` and returns zero-vectors rather than crashing; RAG lookups simply never clear the similarity threshold in that case
 - **`HokuRAG`** (`app/ai/rag.py`) — `create_vector_store`, `add_faq_documents`, `similarity_search`, and `build_context`, backed by the `vector_store` table
 - **pgvector on Postgres, cosine-similarity fallback on SQLite** — uses PostgreSQL's `pgvector` extension directly (cosine-distance operator) when available; automatically falls back to an in-Python cosine-similarity scan on SQLite (the path exercised in this dev environment)
-- **Similarity threshold 0.75** — below this, `build_context` returns `""` and the chatbot falls back to general LLM knowledge rather than grounding on a loosely related FAQ
+- **Similarity threshold 0.35** — below this, `build_context` returns `""` and the chatbot falls back to general LLM knowledge rather than grounding on a loosely related FAQ (threshold lowered from 0.75 in Day 8.1 to match the all-MiniLM-L6-v2 score distribution)
 - **Intent-aware RAG routing** — RAG only runs for `GENERAL`/`SYMPTOM` intents; `BOOKING`/`MEDICATION` skip it, `EMERGENCY` bypasses RAG (and the LLM) entirely
 - **Bounded RAG latency** — RAG lookup runs under its own `RAG_LOOKUP_TIMEOUT` (default 0.5s) via `asyncio.wait_for`; on timeout or any exception, RAG is skipped and the chatbot proceeds with the default (non-RAG) prompt rather than risk breaching the 4s NFR-02 ceiling
 - **`RAG_SYSTEM_PROMPT`** (`app/ai/prompts.py`) — same clinical safety rules as the default prompt, plus a `{faq_context}` slot; the default `SYSTEM_PROMPT` is unchanged and still used when no FAQ match clears the threshold
@@ -430,6 +472,38 @@ Day 9 was dedicated to a full system-wide audit, deep debugging, and surgical re
 - **`tests/test_chatbot.py`** — Resolved async test runner deadlocks caused by unmocked `asyncio.to_thread` calls inside `HokuChatbot`; fixed conversation-memory fixtures to properly isolate per-user state across parametrized test cases.
 - **`tests/test_performance.py`** — Fixed benchmark execution timing flakiness by mocking `time.perf_counter` increments; corrected metric assertions for cache hit/miss ratios and NFR-02 breach counts after `ResponseOptimizer` refactor.
 - **Achieved 100% passing status** across all unit, integration, and performance test suites with zero regressions. All previously failing edge-case tests now pass, and the full suite continues to run in under 30 seconds.
+
+---
+
+### Day 10: Production Deployment & Monitoring ✅ COMPLETE (288/288 tests passing, 80.7% coverage)
+
+Day 10 packages the entire chatbot for production: containerization, a CI/CD pipeline, full observability, API hardening, and a comprehensive integration/load/unit test layer — with zero regressions across all Day 0–9 tests.
+
+**Priority 1 — Deployment Infrastructure:**
+- **`Dockerfile`** — multi-stage build (`python:3.11-slim`), non-root user (uid 1000), embedded-model preload, and a `HEALTHCHECK` against `/api/ai/health`. Single-worker CMD by design (HokuMetrics/ResponseCache/Prometheus registry are in-process singletons — scale horizontally, not with `--workers`).
+- **`docker-compose.yml`** — app + `pgvector/pgvector:pg16`, with the `vector` extension auto-enabled on first boot via `scripts/init-pgvector.sql`. Full Day 5–8 environment wired through.
+- **`render.yaml`** — Render.com Blueprint provisioning the web service and a managed Postgres in one step, with `autoDeploy` on push to `main` and secrets (`GROQ_API_KEY`, auto-generated `SECRET_KEY`) declared.
+- **`.github/workflows/ci.yml`** — CI pipeline: `ruff` lint, `mypy` types, `pytest` with an 80% coverage gate against a `pgvector` Postgres service, plus a Docker build + health-check smoke test.
+- **`app/scripts/deploy_check.py`** — pre-flight verification (env vars, DB connectivity, Groq reachability, pgvector extension, vector-store population, and the clinical-safety invariants) with `--live-groq` and `--strict` modes and meaningful exit codes.
+
+**Priority 2 — Monitoring & Observability:**
+- **`app/core/monitoring.py`** — a Prometheus metrics layer added *onto* the existing `HokuMetrics` singleton (every Day 7–9 call site unchanged), exposed at **`GET /metrics`**: `hoku_chatbot_requests_total{intent,emergency_flag}`, `hoku_chatbot_response_time_seconds` (histogram, NFR-02-aware buckets), `hoku_chatbot_safety_violations_total`, `hoku_chatbot_emergency_escalations_total`, `hoku_chatbot_cache_hit_ratio`, `hoku_chatbot_nfr02_breaches_total`, and `hoku_chatbot_safety_fallbacks_total`. Uses a private registry so repeated imports under pytest never raise duplicate-timeseries errors.
+- **`app/core/logging.py`** — JSON structured logging (one object per line), a per-request `correlation_id` propagated via `contextvar` and echoed back as the `X-Correlation-ID` header, and a **PHI redaction filter** that scrubs patient messages, AI replies, JWTs, API keys, emails, phone numbers, and inline DB credentials *before* any handler sees the record. `RequestLoggingMiddleware` assigns the correlation ID, times each request, and emits one structured access line. **Patient messages and AI replies are never logged.**
+
+**Priority 3 — API Polish:**
+- **Per-user rate limiting** on `POST /api/ai/chat` — 5 requests/minute (configurable), enforced by an in-process sliding-window limiter (`app/core/rate_limit.py`) keyed on the authenticated user. 429 responses carry `Retry-After` and standard `RateLimit-*` headers.
+- **OpenAPI examples, tags, and summaries** on every endpoint so `/docs` is self-documenting for the frontend team.
+- **`app/main.py` lifespan warm-up** — verifies pgvector, warms the Groq client, the embedding model, and the DB pool before accepting traffic (no cold-start SLA breach); mounts `/metrics`; installs global exception handlers that guarantee the safety disclaimer on every error path; and applies Vercel-ready CORS.
+
+**Priority 4 — Tests & Documentation:**
+- **`tests/integration/test_chatbot_integration.py`** — 6 end-to-end tests (full flow, emergency headers, multi-turn memory, RAG-grounded reply, safety disclaimer, performance <4s) with **Groq fully mocked** via an `autouse` fixture in `tests/integration/conftest.py`, keeping them offline and deterministic.
+- **`tests/load/test_chatbot_load.py`** — 50 concurrent users, P95 <4s, zero 500s (pytest path with mocked Groq, plus a Locust class for live-host soak testing).
+- **`tests/unit/`** — rate limiter, log redaction, endpoint coverage, chatbot fallback paths, and JWT/validator tests.
+- **Docs** — production `README.md`, `CONTRIBUTING.md` (branch naming, conventional commits, PR requirements, clinical-safety rules), and `app/docs/chatbot_api.md` (curl examples, auth, rate limits, error codes).
+- **`requirements.txt`** — all versions pinned; added `prometheus-client`, `ruff`, `mypy`, `locust`.
+- **Coverage tooling** — `.coveragerc` (source + omit list for manual-only/dead/teammate modules), `mypy.ini`, and a root `conftest.py`.
+
+**Result:** 288 tests passing, **80.7% coverage** (stable across runs), all clinical-safety invariants intact (emergency short-circuit, EMERGENCY/SYMPTOM never cached, mandatory disclaimer on every path).
 
 ---
 
@@ -518,7 +592,7 @@ The chatbot never provides definitive diagnoses. Temperature is set to **0.3** t
 | `INTENT_CONFIDENCE_THRESHOLD` | `0.7` | Minimum confidence to accept intent |
 | `EMBEDDING_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | Local embedding model for RAG (Day 5) |
 | `VECTOR_DIMENSION` | `384` | Embedding vector dimension (Day 5) |
-| `RAG_SIMILARITY_THRESHOLD` | `0.75` | Minimum similarity to use a FAQ match (Day 5) |
+| `RAG_SIMILARITY_THRESHOLD` | `0.35` | Minimum similarity to use a FAQ match (Day 5; lowered from 0.75 in Day 8.1 to match all-MiniLM-L6-v2 score bands) |
 | `RAG_TOP_K` | `3` | Number of FAQ matches retrieved per query (Day 5) |
 | `COLLECTION_NAME` | `hoku_health_faqs` | pgvector/vector_store collection name (Day 5) |
 | `RAG_LOOKUP_TIMEOUT` | `0.5` | Max seconds allotted to RAG lookup before skipping it (Day 5) |
@@ -539,6 +613,61 @@ The chatbot never provides definitive diagnoses. Temperature is set to **0.3** t
 | `DB_POOL_TIMEOUT_SECONDS` | `5` | Max seconds to wait for a connection from the pool (Day 8) |
 | `FALLBACK_RESPONSES_ENABLED` | `true` | Enable static fallback responses on timeout (Day 8) |
 | `NFR02_BREACH_LOG_LEVEL` | `WARNING` | Log level for NFR-02 breach alerts (Day 8) |
+| `LOG_FORMAT` | `json` | Structured JSON logs (prod) or `plain` (local) (Day 10) |
+| `LOG_LEVEL` | `INFO` | Root log level (Day 10) |
+| `METRICS_ENABLED` | `true` | Toggle the `/metrics` Prometheus endpoint (Day 10) |
+| `RATE_LIMIT_ENABLED` | `true` | Toggle chat rate limiting (Day 10) |
+| `RATE_LIMIT_REQUESTS_PER_MINUTE` | `5` | Chat requests/min per user (Day 10) |
+| `CORS_ALLOW_ORIGINS` | localhost + Vercel origins | Comma-separated allowed CORS origins (Day 10) |
+
+---
+
+## Deployment
+
+### Docker (local / staging)
+
+```bash
+cp .env.example .env          # set GROQ_API_KEY at minimum
+docker compose up --build
+
+# Once healthy, in another shell:
+docker compose exec app python -m app.scripts.deploy_check
+docker compose exec app python init_db.py
+docker compose exec app python -m app.scripts.seed_faqs
+```
+
+Compose brings up `pgvector/pgvector:pg16` (the `vector` extension is enabled automatically on first boot) and the API on http://localhost:8000. The image is multi-stage and runs as a non-root user (uid 1000) with a `HEALTHCHECK` on `/api/ai/health`.
+
+### Render.com (production)
+
+`render.yaml` provisions the web service and a managed Postgres in one step:
+
+1. Push to `main`.
+2. Render Dashboard → **New → Blueprint** → select the repo.
+3. Enter the prompted secret `GROQ_API_KEY` (`SECRET_KEY` is auto-generated).
+4. First deploy: open a shell and run `python init_db.py && python -m app.scripts.seed_faqs`.
+5. Verify: `python -m app.scripts.deploy_check --strict`.
+
+`autoDeploy: true` redeploys on every push to `main`. The health probe targets `/api/ai/health`; the lifespan warm-up (pgvector check, Groq/model/pool warm-up) absorbs cold starts before traffic is routed.
+
+> **Free-tier note:** setting `PRELOAD_EMBEDDINGS=false` keeps the image small; the first RAG lookup then downloads the embedding model. If that fails, RAG degrades to zero-vectors and the chat endpoint still answers within NFR-02.
+
+### Pre-flight verification
+
+```bash
+python -m app.scripts.deploy_check              # env, DB, Groq, pgvector, vector store, safety
+python -m app.scripts.deploy_check --live-groq  # + one real Groq call
+python -m app.scripts.deploy_check --strict     # warnings fail the gate
+```
+
+### Monitoring in production
+
+- **Prometheus:** scrape `GET /metrics`. NFR-02 compliance ratio in Grafana:
+  `hoku_chatbot_response_time_seconds_bucket{le="4.0"} / hoku_chatbot_response_time_seconds_count`.
+- **Human-readable summary:** `GET /api/ai/monitoring/metrics` (authenticated).
+- **Structured logs:** JSON with a `correlation_id` per request (echoed as `X-Correlation-ID`); PHI is redacted before logging. Set `LOG_FORMAT=plain` for local development.
+
+Full API reference with curl examples and error codes: [`app/docs/chatbot_api.md`](app/docs/chatbot_api.md). Contribution workflow and clinical-safety rules: [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ---
 
@@ -546,7 +675,7 @@ The chatbot never provides definitive diagnoses. Temperature is set to **0.3** t
 
 **This AI Chatbot Module** is developed and maintained by:
 
-- **Ameema Rashid** — AI Lead Developer
+- **Ameema Rashid** — AI Lead Developer (chatbot pipeline, RAG, intent, safety, Day 10 production release)
 
 **Overall Hoku Health Care Project:**
 

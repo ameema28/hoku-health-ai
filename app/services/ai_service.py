@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.ai.chatbot import HokuChatbot
 from app.ai.config import ai_settings
-from app.ai.intent_classifier import IntentClassifier, IntentEnum
+from app.ai.intent_classifier import IntentClassifier
 from app.ai.memory import HokuConversationMemory
 from app.core.exceptions import DatabaseOperationException
 from app.utils.constants import SAFETY_DISCLAIMER

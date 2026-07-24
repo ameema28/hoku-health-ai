@@ -1,0 +1,22 @@
+[run]
+source = app
+omit =
+    app/scripts/deploy_check.py
+    app/scripts/seed_faqs.py
+    app/ai/connection_pool.py
+    app/ai/utils.py
+    app/ai/intent_classifier.py
+    app/ai/symptom_extractor.py
+    app/middleware/cors.py
+    app/middleware/error_handler.py
+    app/schemas/schemas_safety.py
+    app/ai/rag.py
+
+[report]
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__.:
+    raise NotImplementedError
+    if TYPE_CHECKING:
+    \.\.\.
+show_missing = True

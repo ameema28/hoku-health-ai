@@ -17,7 +17,7 @@ import logging
 import threading
 import time
 from collections import deque
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware

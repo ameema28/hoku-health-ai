@@ -4,10 +4,13 @@ __pycache__/
 *.so
 .venv/
 venv/
+project_dump.txt
 *.db
 *.sqlite
 *.sqlite3
 .env
+.mypy_cache/
+.pytest_cache/
 .vscode/
 .idea/
 .pytest_cache/

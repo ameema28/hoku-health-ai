@@ -3,10 +3,14 @@ Hoku Health Care - Core Configuration Module.
 
 Loads and validates application settings from environment variables
 using Pydantic Settings for type safety and runtime validation.
+
+Day 10: adds observability, rate-limiting, and CORS settings. All new
+fields carry safe defaults so existing deployments and the 215-test
+suite are unaffected when the variables are absent.
 """
 
 import logging
-from typing import Optional
+from typing import List
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -32,40 +36,17 @@ class Settings(BaseSettings):
     # Groq AI
     GROQ_API_KEY: str = ""
     # Day 8.1: aligned with app/ai/config.py AISettings, which is the module
-    # the chatbot actually reads. These two files previously declared
-    # DIFFERENT default models (llama3-8b-8192 / llama3-70b-8192 here vs
-    # llama-3.1-8b-instant / llama-3.3-70b-versatile there). Because both read
-    # the same case-insensitive env vars, whichever .env value was set
-    # silently overrode one of them — and the legacy llama3-*-8192 names are
-    # decommissioned on Groq, so any code path reading these would 404.
+    # the chatbot actually reads. Both read the same case-insensitive env
+    # vars; the legacy llama3-*-8192 names are decommissioned on Groq.
     GROQ_FAST_MODEL: str = "llama-3.1-8b-instant"
     GROQ_MAIN_MODEL: str = "llama-3.3-70b-versatile"
 
-    # Embeddings (stubbed for future RAG pipeline)
+    # Embeddings
     EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
 
-    # Day 5: RAG pipeline (pgvector on Postgres; falls back to in-Python
-    # cosine similarity on SQLite -- see app/ai/rag.py)
+    # Day 5: RAG pipeline (pgvector on Postgres; in-Python cosine on SQLite)
     VECTOR_DIMENSION: int = 384
-
-    # Day 8.1: lowered 0.75 -> 0.35.
-    #
-    # all-MiniLM-L6-v2 with normalize_embeddings=True produces cosine
-    # similarities in roughly these bands for short FAQ text:
-    #     0.00-0.25  unrelated
-    #     0.25-0.35  weakly related
-    #     0.35-0.55  on-topic paraphrase   <- what we want to retrieve
-    #     0.55-1.00  near-duplicate wording
-    #
-    # A 0.75 gate is effectively "near-verbatim match only", so build_context
-    # returned "" on essentially every real query. Observed in production
-    # logs: top score 0.233 vs threshold 0.750 -> RAG never fired, and the
-    # entire Day 5 deliverable (rag_chat_prompt_template, the {faq_context}
-    # slot) was unreachable code.
-    #
-    # 0.35 sits above the unrelated band, so a genuinely irrelevant FAQ is
-    # still rejected rather than grounding a clinical reply on noise.
-    # Tune per corpus: raise it if replies cite unrelated FAQs.
+    # Day 8.1: lowered 0.75 -> 0.35 to match all-MiniLM-L6-v2 score bands.
     RAG_SIMILARITY_THRESHOLD: float = 0.35
     RAG_TOP_K: int = 3
     COLLECTION_NAME: str = "hoku_health_faqs"
@@ -74,10 +55,49 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     DEBUG: bool = False
 
+    # ------------------------------------------------------------------
+    # Day 10: Observability
+    # ------------------------------------------------------------------
+    #: "json" for structured logs (production) or "plain" for local dev.
+    LOG_FORMAT: str = "json"
+    #: Root log level name.
+    LOG_LEVEL: str = "INFO"
+    #: Master switch for the /metrics Prometheus endpoint.
+    METRICS_ENABLED: bool = True
+
+    # ------------------------------------------------------------------
+    # Day 10: Rate limiting (POST /api/ai/chat)
+    # ------------------------------------------------------------------
+    RATE_LIMIT_ENABLED: bool = True
+    RATE_LIMIT_REQUESTS_PER_MINUTE: int = 5
+
+    # ------------------------------------------------------------------
+    # Day 10: CORS (Vercel frontend + local dev)
+    # ------------------------------------------------------------------
+    #: Comma-separated allowed origins. Parsed by ``cors_origins``.
+    CORS_ALLOW_ORIGINS: str = (
+        "http://localhost:5173,http://localhost:3000,"
+        "https://hoku-health-web.vercel.app"
+    )
+
     @property
     def is_production(self) -> bool:
         """Check if running in production environment."""
         return self.ENVIRONMENT.lower() == "production"
+
+    @property
+    def cors_origins(self) -> List[str]:
+        """
+        Parse ``CORS_ALLOW_ORIGINS`` into a clean list.
+
+        Returns:
+            List[str]: Trimmed, non-empty origin strings. A lone ``"*"``
+            is passed through so wildcard CORS still works in dev.
+        """
+        raw = (self.CORS_ALLOW_ORIGINS or "").strip()
+        if raw == "*":
+            return ["*"]
+        return [origin.strip() for origin in raw.split(",") if origin.strip()]
 
 
 def get_settings() -> Settings:
@@ -86,8 +106,22 @@ def get_settings() -> Settings:
 
 
 def configure_logging() -> None:
-    """Configure standard library logging for the application."""
-    log_level = logging.DEBUG if get_settings().DEBUG else logging.INFO
+    """
+    Configure standard library logging for the application.
+
+    Retained for backward compatibility with Day 0-9 callers. New code
+    should prefer :func:`app.core.logging.configure_structured_logging`,
+    which this function delegates to when structured logging is selected.
+    """
+    settings_obj = get_settings()
+    if settings_obj.LOG_FORMAT.lower() == "json":
+        # Import locally to avoid a circular import at module load time.
+        from app.core.logging import configure_structured_logging
+
+        configure_structured_logging()
+        return
+
+    log_level = logging.DEBUG if settings_obj.DEBUG else logging.INFO
     logging.basicConfig(
         level=log_level,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",

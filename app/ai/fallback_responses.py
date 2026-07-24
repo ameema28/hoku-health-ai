@@ -63,7 +63,7 @@ FALLBACK_RAG_TIMEOUT: str = (
 # ------------------------------------------------------------------
 # Re-exported from config for consistency. This is the absolute last
 # resort when even safety sanitization fails repeatedly.
-from app.ai.config import ai_settings
+from app.ai.config import ai_settings  # noqa: E402
 
 FALLBACK_SAFETY_3_STRIKE: str = ai_settings.SAFETY_FALLBACK_RESPONSE
 

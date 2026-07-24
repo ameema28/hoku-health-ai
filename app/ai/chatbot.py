@@ -53,11 +53,6 @@ except ImportError as _import_exc:
 from app.ai.caching import ResponseCache  # Day 8: In-memory response cache
 from app.ai.config import ai_settings
 from app.ai.emergency_detector import EmergencyDetector
-from app.ai.fallback_responses import (  # Day 8: Static fallback responses
-    FALLBACK_BOOKING,
-    FALLBACK_EMERGENCY,
-    FALLBACK_GENERAL,
-)
 from app.ai.intent_classifier import IntentClassifier, IntentEnum
 from app.ai.llm_optimizer import LLMFactory, compress_prompt  # Day 8: LLM optimization
 from app.ai.memory import HokuConversationMemory

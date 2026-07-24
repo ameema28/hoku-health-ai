@@ -1,0 +1,141 @@
+# =============================================================================
+# Hoku Health Care - Render.com Blueprint (Day 10)
+#
+# Deploy:
+#   1. Push this file to the repo root on the `main` branch.
+#   2. Render Dashboard -> New -> Blueprint -> select the repo.
+#   3. Set the two `sync: false` secrets when prompted (GROQ_API_KEY,
+#      SECRET_KEY). Everything else is provisioned automatically.
+#
+# Free-tier notes (512MB RAM):
+#   * PRELOAD_EMBEDDINGS=false keeps the image small. The first RAG
+#     lookup then downloads all-MiniLM-L6-v2 (~90MB) into ephemeral
+#     storage; app/ai/embeddings.py falls back to zero-vectors if that
+#     fails, so the chat endpoint still answers within NFR-02.
+#   * Free instances spin down after inactivity. healthCheckPath keeps
+#     Render's probe honest; the lifespan warm-up in app/main.py absorbs
+#     the cold start before traffic is routed.
+#   * Single worker only - HokuMetrics / ResponseCache are in-process.
+# =============================================================================
+
+databases:
+  - name: hoku-postgres
+    databaseName: hoku_health
+    user: hoku
+    plan: free
+    postgresMajorVersion: "16"
+    ipAllowList: []          # private network only
+
+services:
+  - type: web
+    name: hoku-health-backend
+    runtime: docker
+    plan: free
+    region: oregon
+    branch: main
+    autoDeploy: true          # redeploy on every push to `main`
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/ai/health
+    buildFilter:
+      paths:
+        - app/**
+        - alembic/**
+        - requirements.txt
+        - Dockerfile
+        - render.yaml
+      ignoredPaths:
+        - tests/**
+        - "**/*.md"
+    envVars:
+      # ---- Database (auto-wired from the block above) -----------------
+      - key: DATABASE_URL
+        fromDatabase:
+          name: hoku-postgres
+          property: connectionString
+
+      # ---- Secrets (entered once in the Render dashboard) -------------
+      - key: GROQ_API_KEY
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+
+      # ---- Core application -------------------------------------------
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: "false"
+      - key: ALGORITHM
+        value: HS256
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "30"
+
+      # ---- Groq / AI ---------------------------------------------------
+      - key: GROQ_FAST_MODEL
+        value: llama-3.1-8b-instant
+      - key: GROQ_MAIN_MODEL
+        value: llama-3.3-70b-versatile
+      - key: TEMPERATURE
+        value: "0.3"
+      - key: MAX_TOKENS
+        value: "512"
+      - key: GROQ_TIMEOUT_SECONDS
+        value: "3.5"
+      - key: INTENT_CLASSIFICATION_TIMEOUT
+        value: "1.0"
+      - key: INTENT_CONFIDENCE_THRESHOLD
+        value: "0.7"
+
+      # ---- RAG (Day 5) --------------------------------------------------
+      - key: EMBEDDING_MODEL
+        value: sentence-transformers/all-MiniLM-L6-v2
+      - key: VECTOR_DIMENSION
+        value: "384"
+      - key: RAG_SIMILARITY_THRESHOLD
+        value: "0.35"
+      - key: RAG_TOP_K
+        value: "3"
+      - key: COLLECTION_NAME
+        value: hoku_health_faqs
+      - key: RAG_LOOKUP_TIMEOUT
+        value: "0.5"
+
+      # ---- Safety (Day 7) -----------------------------------------------
+      - key: EMERGENCY_CHECK_TIMEOUT
+        value: "0.3"
+      - key: SAFETY_MAX_RETRIES
+        value: "3"
+
+      # ---- Performance (Day 8) ------------------------------------------
+      - key: RESPONSE_CACHE_ENABLED
+        value: "true"
+      - key: RESPONSE_CACHE_TTL_SECONDS
+        value: "300"
+      - key: CACHE_EXCLUDE_INTENTS
+        value: emergency,symptom
+      - key: DB_POOL_SIZE
+        value: "5"          # free tier caps Postgres connections
+      - key: DB_MAX_OVERFLOW
+        value: "5"
+      - key: FALLBACK_RESPONSES_ENABLED
+        value: "true"
+
+      # ---- Observability & API polish (Day 10) --------------------------
+      - key: LOG_FORMAT
+        value: json
+      - key: LOG_LEVEL
+        value: INFO
+      - key: METRICS_ENABLED
+        value: "true"
+      - key: RATE_LIMIT_ENABLED
+        value: "true"
+      - key: RATE_LIMIT_REQUESTS_PER_MINUTE
+        value: "5"
+      - key: CORS_ALLOW_ORIGINS
+        value: https://hoku-health-web.vercel.app,https://hokuhealth.com
+
+      # ---- Build tuning --------------------------------------------------
+      - key: PRELOAD_EMBEDDINGS
+        value: "false"
+      - key: PYTHONUNBUFFERED
+        value: "1"

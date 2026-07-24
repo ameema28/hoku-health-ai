@@ -9,7 +9,7 @@ relevant) conversation turns.
 import logging
 from typing import List
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.messages import BaseMessage
 
 logger = logging.getLogger(__name__)
 

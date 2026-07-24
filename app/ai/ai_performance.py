@@ -15,7 +15,7 @@ Key design decisions:
 import asyncio
 import logging
 import time
-from typing import Any, Callable, Coroutine, Optional, Tuple, Type, Union
+from typing import Any, Callable, Coroutine, Tuple, Type, Union
 
 from app.ai.config import ai_settings
 
