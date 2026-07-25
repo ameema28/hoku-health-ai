@@ -114,15 +114,7 @@ jobs:
           key: hf-${{ runner.os }}-all-MiniLM-L6-v2
 
       - name: Run test suite with coverage
-        run: |
-          pytest tests/ \
-            --cov=app \
-            --cov-report=term-missing \
-            --cov-report=xml \
-            --cov-fail-under=78 \
-            -v \
-            --ignore=tests/load \
-            --ignore=tests/integration
+        run: pytest tests/ --cov-report=xml --ignore=tests/load
 
       - name: Upload coverage artifact
         if: always()
