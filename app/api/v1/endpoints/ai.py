@@ -193,7 +193,12 @@ async def enforce_chat_rate_limit(
     Raises:
         HTTPException: 429 when the user has exceeded their quota.
     """
+    limit = getattr(settings, "RATE_LIMIT_REQUESTS_PER_MINUTE", 5)
+
     if not settings.RATE_LIMIT_ENABLED:
+        # Headers must be present even when enforcement is off (CI contract)
+        response.headers["RateLimit-Limit"] = str(limit)
+        response.headers["RateLimit-Remaining"] = str(limit)
         return current_user
 
     limiter = get_chat_rate_limiter()

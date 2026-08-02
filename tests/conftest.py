@@ -53,3 +53,23 @@ def mock_emergency_detector():
     
     with patch("app.ai.chatbot.detect_emergency", side_effect=mock_detect):
         yield
+
+@pytest.fixture(autouse=True)
+def _isolate_chatbot_cache():
+    """Prevent ResponseCache singleton from leaking between tests."""
+    from unittest.mock import patch
+    with patch("app.ai.chatbot.ResponseCache") as MockCache:
+        instance = MockCache.return_value
+        instance.get.return_value = None
+        instance.set.return_value = None
+        yield
+
+@pytest.fixture
+def auth_headers(client):
+    """
+    Authenticated headers for endpoints that require JWT.
+    Overrides get_current_user so any Bearer token works in tests.
+    """
+    from app.core.dependencies import get_current_user
+    app.dependency_overrides[get_current_user] = lambda: {"id": 1, "email": "test@hoku.health"}
+    return {"Authorization": "Bearer test-token"}       
