@@ -216,7 +216,12 @@ async def enforce_chat_rate_limit(
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=f"Rate limit exceeded. Try again in {exc.retry_after_seconds} seconds.",
-            headers={"Retry-After": str(exc.retry_after_seconds)},
+            headers={
+                "Retry-After": str(exc.retry_after_seconds),
+                "RateLimit-Limit": str(exc.limit),
+                "RateLimit-Remaining": "0",
+                "RateLimit-Reset": str(exc.retry_after_seconds),
+            },
         ) from exc
 
     response.headers["RateLimit-Limit"] = str(state.limit)
