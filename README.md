@@ -1,5 +1,7 @@
 # Hoku Health Care - AI Chatbot Module
 
+![CI](https://github.com/ameema28/hoku-health-ai/actions/workflows/ci.yml/badge.svg?branch=main)
+
 **TechNexus Virtual University | Internship Project**
 
 This module provides the AI-powered health chatbot backend for Hoku Health Care, a home healthcare platform serving patients in Pakistan, UAE, and UK.
