@@ -18,3 +18,16 @@ project_dump.txt
 htmlcov/
 .DS_Store
 Thumbs.db
+
+# Secrets
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*service-account*.json
+*service_account*.json
+client_secret*.json
+application_default_credentials.json
+*credentials*.json
