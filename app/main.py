@@ -94,7 +94,10 @@ async def _verify_pgvector() -> None:
         from app.core.database import engine
 
         if engine.dialect.name != "postgresql":
-            logger.info("pgvector check skipped: dialect=%s (cosine fallback)", engine.dialect.name)
+            logger.info(
+                "pgvector check skipped: dialect=%s (cosine fallback)",
+                engine.dialect.name,
+            )
             return
 
         def _check() -> bool:
@@ -169,7 +172,7 @@ app = FastAPI(
     description=(
         "AI-powered home healthcare assistance platform.\n\n"
         "The chatbot never provides a definitive diagnosis; every response "
-        "ends with *\"Please consult a doctor for proper diagnosis.\"*"
+        'ends with *"Please consult a doctor for proper diagnosis."*'
     ),
     version=APP_VERSION,
     lifespan=lifespan,
@@ -178,7 +181,10 @@ app = FastAPI(
     openapi_tags=[
         {"name": "AI Chatbot", "description": "Patient-facing chat and history."},
         {"name": "Doctors", "description": "Specialist lookup and availability."},
-        {"name": "RAG (admin)", "description": "FAQ vector-store seeding and debug search."},
+        {
+            "name": "RAG (admin)",
+            "description": "FAQ vector-store seeding and debug search.",
+        },
         {"name": "Monitoring", "description": "Safety and performance metrics."},
         {"name": "Health", "description": "Liveness probes."},
     ],
@@ -213,7 +219,9 @@ app.add_middleware(RequestLoggingMiddleware)
 # Global exception handlers
 # ---------------------------------------------------------------------------
 @app.exception_handler(StarletteHTTPException)
-async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+async def http_exception_handler(
+    request: Request, exc: StarletteHTTPException
+) -> JSONResponse:
     """
     Render HTTP exceptions as JSON with the correlation ID attached.
 
@@ -271,7 +279,9 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     Returns:
         JSONResponse: A safe 500 payload.
     """
-    logger.exception("Unhandled exception on %s %s: %s", request.method, request.url.path, exc)
+    logger.exception(
+        "Unhandled exception on %s %s: %s", request.method, request.url.path, exc
+    )
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={

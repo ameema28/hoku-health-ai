@@ -30,14 +30,13 @@ from typing import Any, Dict, Optional, Tuple
 try:
     from langchain.chains import LLMChain
     from langchain_groq import ChatGroq
+
     LANGCHAIN_AVAILABLE = True
 except ImportError as _import_exc:
     LANGCHAIN_AVAILABLE = False
     ChatGroq = None  # type: ignore
     LLMChain = None  # type: ignore
-    logging.getLogger(__name__).warning(
-        "LangChain/Groq not installed: %s", _import_exc
-    )
+    logging.getLogger(__name__).warning("LangChain/Groq not installed: %s", _import_exc)
 
 from app.ai.config import ai_settings
 from app.ai.prompts import intent_classification_prompt_template
@@ -51,6 +50,7 @@ class IntentEnum(str, Enum):
 
     Using str Enum for clean JSON serialization and database storage.
     """
+
     SYMPTOM = "symptom"
     BOOKING = "booking"
     MEDICATION = "medication"
@@ -99,7 +99,7 @@ class IntentClassifier:
                     model=self.model,
                     api_key=self.groq_api_key,
                     temperature=0.0,  # Deterministic for classification
-                    max_tokens=64,    # Minimal: just JSON with intent + confidence
+                    max_tokens=64,  # Minimal: just JSON with intent + confidence
                     request_timeout=self.timeout,
                 )
                 logger.info("Intent classification LLM (%s) initialized", self.model)
@@ -155,14 +155,8 @@ class IntentClassifier:
 
         try:
             # Run LLM call in thread pool to keep event loop free
-            llm_task = asyncio.to_thread(
-                self.chain.invoke,
-                {"message": message}
-            )
-            result = await asyncio.wait_for(
-                llm_task,
-                timeout=self.timeout
-            )
+            llm_task = asyncio.to_thread(self.chain.invoke, {"message": message})
+            result = await asyncio.wait_for(llm_task, timeout=self.timeout)
 
             elapsed = time.perf_counter() - start_time
             logger.info(
@@ -263,8 +257,8 @@ class IntentClassifier:
 
         # Strip markdown fences
         if cleaned.startswith("```"):
-            cleaned = re.sub(r'^```(?:json)?\s*', '', cleaned, flags=re.IGNORECASE)
-            cleaned = re.sub(r'\s*```$', '', cleaned)
+            cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
+            cleaned = re.sub(r"\s*```$", "", cleaned)
 
         # Try JSON parsing
         try:

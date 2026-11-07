@@ -125,8 +125,13 @@ class TestRedactionFilter:
 
     def _record(self, msg: str, **extra: object) -> logging.LogRecord:
         record = logging.LogRecord(
-            name="test", level=logging.INFO, pathname=__file__, lineno=1,
-            msg=msg, args=(), exc_info=None,
+            name="test",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=1,
+            msg=msg,
+            args=(),
+            exc_info=None,
         )
         for key, value in extra.items():
             setattr(record, key, value)
@@ -162,8 +167,13 @@ class TestJSONFormatter:
         set_correlation_id("test-corr-id")
         formatter = JSONFormatter(environment="test")
         record = logging.LogRecord(
-            name="test", level=logging.INFO, pathname=__file__, lineno=1,
-            msg="hello", args=(), exc_info=None,
+            name="test",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=1,
+            msg="hello",
+            args=(),
+            exc_info=None,
         )
         payload = json.loads(formatter.format(record))
         assert payload["correlation_id"] == "test-corr-id"

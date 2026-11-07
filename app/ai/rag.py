@@ -112,7 +112,8 @@ class HokuRAG:
                 logger.info("pgvector extension enabled (or already present)")
             except Exception as exc:
                 logger.warning(
-                    "Could not enable pgvector extension (may require superuser): %s", exc
+                    "Could not enable pgvector extension (may require superuser): %s",
+                    exc,
                 )
                 self._db.rollback()
 
@@ -148,7 +149,11 @@ class HokuRAG:
             row = VectorStore(
                 content=content,
                 embedding=embedding,
-                doc_metadata={"question": question, "answer": answer, "category": category},
+                doc_metadata={
+                    "question": question,
+                    "answer": answer,
+                    "category": category,
+                },
                 category=category,
             )
             self._db.add(row)
@@ -226,7 +231,9 @@ class HokuRAG:
                 with self._search_session() as session:
                     rows = list(session.execute(stmt).scalars().all())
                 for row in rows:
-                    distance = _cosine_distance_placeholder(row.embedding, query_embedding)
+                    distance = _cosine_distance_placeholder(
+                        row.embedding, query_embedding
+                    )
                     score = 1.0 - distance
                     results.append(
                         Document(
@@ -234,13 +241,19 @@ class HokuRAG:
                             # Day 8.1: doc_metadata is nullable in the schema;
                             # {**None} raises TypeError and the except-block
                             # below would swallow it as "search failed".
-                            metadata={**(row.doc_metadata or {}), "category": row.category, "score": score},
+                            metadata={
+                                **(row.doc_metadata or {}),
+                                "category": row.category,
+                                "score": score,
+                            },
                         )
                     )
                     scores.append(score)
             else:
                 with self._search_session() as session:
-                    all_rows = list(session.execute(select(VectorStore)).scalars().all())
+                    all_rows = list(
+                        session.execute(select(VectorStore)).scalars().all()
+                    )
                 scored = [
                     (row, _cosine_similarity(row.embedding or [], query_embedding))
                     for row in all_rows
@@ -250,7 +263,11 @@ class HokuRAG:
                     results.append(
                         Document(
                             page_content=row.content,
-                            metadata={**(row.doc_metadata or {}), "category": row.category, "score": score},
+                            metadata={
+                                **(row.doc_metadata or {}),
+                                "category": row.category,
+                                "score": score,
+                            },
                         )
                     )
                     scores.append(score)
@@ -275,7 +292,9 @@ class HokuRAG:
         so the chatbot falls back to general LLM knowledge rather than
         grounding on a loosely related (or irrelevant) FAQ.
         """
-        effective_threshold = threshold if threshold is not None else self.similarity_threshold
+        effective_threshold = (
+            threshold if threshold is not None else self.similarity_threshold
+        )
         results = self.similarity_search(query, k=self.top_k)
 
         if not results:
@@ -308,7 +327,9 @@ class HokuRAG:
         return "\n".join(context_parts)
 
 
-def _cosine_distance_placeholder(vec_a: Optional[List[float]], vec_b: List[float]) -> float:
+def _cosine_distance_placeholder(
+    vec_a: Optional[List[float]], vec_b: List[float]
+) -> float:
     """
     Compute cosine distance (1 - cosine_similarity) in Python.
 

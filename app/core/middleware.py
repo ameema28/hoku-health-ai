@@ -63,13 +63,15 @@ class PerformanceMetricsStore:
             if is_violation:
                 self._violation_count += 1
 
-            self._samples.append({
-                "path": path,
-                "elapsed_seconds": round(elapsed_seconds, 4),
-                "status_code": status_code,
-                "timestamp": time.time(),
-                "breached": is_violation,
-            })
+            self._samples.append(
+                {
+                    "path": path,
+                    "elapsed_seconds": round(elapsed_seconds, 4),
+                    "status_code": status_code,
+                    "timestamp": time.time(),
+                    "breached": is_violation,
+                }
+            )
 
     def get_stats(self) -> Dict[str, any]:
         """

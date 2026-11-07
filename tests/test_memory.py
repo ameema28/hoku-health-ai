@@ -23,6 +23,7 @@ from app.ai.token_budget import calculate_history_tokens, trim_history_to_budget
 # Module-level fixtures (shared across ALL test classes in this file)
 # ----------------------------------------------------------------------
 
+
 @pytest.fixture
 def memory_manager():
     return HokuConversationMemory(message_limit=10, max_history_tokens=307)
@@ -158,7 +159,9 @@ class TestTokenBudget:
     def test_trim_history_to_budget_trims_oldest(self):
         """Test that oldest message pairs are dropped when over budget."""
         messages = [
-            HumanMessage(content="Old question from long ago that should be removed first"),
+            HumanMessage(
+                content="Old question from long ago that should be removed first"
+            ),
             AIMessage(content="Old answer that should also be removed"),
             HumanMessage(content="New important question"),
             AIMessage(content="New important answer"),

@@ -123,7 +123,10 @@ _REDACTION_PATTERNS: Final[Tuple[Tuple[Pattern[str], str], ...]] = (
     (re.compile(r"\bgsk_[A-Za-z0-9]{10,}\b"), _REDACTED),
     (re.compile(r"\bsk-[A-Za-z0-9]{16,}\b"), _REDACTED),
     # JWTs (three base64url segments)
-    (re.compile(r"\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\b"), _REDACTED),
+    (
+        re.compile(r"\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\b"),
+        _REDACTED,
+    ),
     (re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._\-]{8,}"), "Bearer " + _REDACTED),
     # Email addresses
     (re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.]{2,}\b"), _REDACTED),
@@ -203,10 +206,29 @@ def redact(value: str) -> str:
 #: Standard LogRecord attributes, excluded when harvesting ``extra``.
 _RESERVED_ATTRS: Final[frozenset] = frozenset(
     {
-        "args", "asctime", "created", "exc_info", "exc_text", "filename",
-        "funcName", "levelname", "levelno", "lineno", "module", "msecs",
-        "message", "msg", "name", "pathname", "process", "processName",
-        "relativeCreated", "stack_info", "thread", "threadName", "taskName",
+        "args",
+        "asctime",
+        "created",
+        "exc_info",
+        "exc_text",
+        "filename",
+        "funcName",
+        "levelname",
+        "levelno",
+        "lineno",
+        "module",
+        "msecs",
+        "message",
+        "msg",
+        "name",
+        "pathname",
+        "process",
+        "processName",
+        "relativeCreated",
+        "stack_info",
+        "thread",
+        "threadName",
+        "taskName",
     }
 )
 
@@ -262,9 +284,7 @@ class JSONFormatter(logging.Formatter):
             str: One-line JSON payload.
         """
         payload: Dict[str, Any] = {
-            "timestamp": time.strftime(
-                "%Y-%m-%dT%H:%M:%S", time.gmtime(record.created)
-            )
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(record.created))
             + f".{int(record.msecs):03d}Z",
             "level": record.levelname,
             "logger": record.name,

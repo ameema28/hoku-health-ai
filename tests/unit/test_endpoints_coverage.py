@@ -125,7 +125,9 @@ class TestDoctorEndpoints:
         assert resp.status_code == 200
         assert resp.json() == []
 
-    def test_doctor_availability_empty(self, client: TestClient, auth: Dict[str, str]) -> None:
+    def test_doctor_availability_empty(
+        self, client: TestClient, auth: Dict[str, str]
+    ) -> None:
         resp = client.get("/api/ai/doctors/1/availability", headers=auth)
         assert resp.status_code == 200
         assert resp.json() == []
@@ -134,7 +136,9 @@ class TestDoctorEndpoints:
 class TestMonitoringEndpoint:
     """The authenticated metrics summary returns the HokuMetrics dict."""
 
-    def test_monitoring_metrics_summary(self, client: TestClient, auth: Dict[str, str]) -> None:
+    def test_monitoring_metrics_summary(
+        self, client: TestClient, auth: Dict[str, str]
+    ) -> None:
         resp = client.get("/api/ai/monitoring/metrics", headers=auth)
         assert resp.status_code == 200
         body = resp.json()

@@ -30,7 +30,16 @@ import logging
 import time
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Path,
+    Query,
+    Request,
+    Response,
+    status,
+)
 from sqlalchemy.orm import Session
 
 from app.ai.rag import HokuRAG
@@ -126,7 +135,9 @@ _ERROR_RESPONSES: Dict[int, Dict[str, Any]] = {
         "description": "Message empty or exceeds the 1000-character limit.",
         "content": {
             "application/json": {
-                "example": {"detail": "Message cannot be empty or exceeds maximum length."}
+                "example": {
+                    "detail": "Message cannot be empty or exceeds maximum length."
+                }
             }
         },
     },
@@ -137,7 +148,9 @@ _ERROR_RESPONSES: Dict[int, Dict[str, Any]] = {
     status.HTTP_404_NOT_FOUND: {
         "description": "userId does not match the authenticated user.",
         "content": {
-            "application/json": {"example": {"detail": "User not found or access denied"}}
+            "application/json": {
+                "example": {"detail": "User not found or access denied"}
+            }
         },
     },
     status.HTTP_429_TOO_MANY_REQUESTS: {
@@ -240,14 +253,17 @@ async def enforce_chat_rate_limit(
     summary="AI Health Chatbot",
     operation_id="chat_with_hoku_ai",
     tags=["AI Chatbot"],
-    responses={**_ERROR_RESPONSES, 200: {"description": "AI response with clinical metadata."}},
+    responses={
+        **_ERROR_RESPONSES,
+        200: {"description": "AI response with clinical metadata."},
+    },
     description=(
         "Send a health question to Hoku AI and receive a safe, non-diagnostic "
         "response, grounded in Hoku Health Care's FAQ knowledge base when relevant.\n\n"
         "- **Rate limit:** 5 requests/minute per user (429 with `Retry-After` on breach).\n"
         "- **Emergency detection** runs first; life-threatening messages return an "
         "urgent response with `X-Hoku-Emergency: true`.\n"
-        "- Every reply ends with *\"Please consult a doctor for proper diagnosis.\"*"
+        '- Every reply ends with *"Please consult a doctor for proper diagnosis."*'
     ),
     openapi_extra={
         "requestBody": {
@@ -256,15 +272,24 @@ async def enforce_chat_rate_limit(
                     "examples": {
                         "headache": {
                             "summary": "Mild symptom",
-                            "value": {"message": "I have a headache and fever for 3 days", "userId": 123},
+                            "value": {
+                                "message": "I have a headache and fever for 3 days",
+                                "userId": 123,
+                            },
                         },
                         "booking": {
                             "summary": "Booking intent",
-                            "value": {"message": "How do I book an appointment?", "userId": 123},
+                            "value": {
+                                "message": "How do I book an appointment?",
+                                "userId": 123,
+                            },
                         },
                         "emergency": {
                             "summary": "Emergency phrasing",
-                            "value": {"message": "I have chest pain and can't breathe", "userId": 123},
+                            "value": {
+                                "message": "I have chest pain and can't breathe",
+                                "userId": 123,
+                            },
                         },
                     }
                 }
@@ -272,9 +297,7 @@ async def enforce_chat_rate_limit(
         },
         "responses": {
             "200": {
-                "content": {
-                    "application/json": {"examples": _CHAT_RESPONSE_EXAMPLES}
-                }
+                "content": {"application/json": {"examples": _CHAT_RESPONSE_EXAMPLES}}
             }
         },
     },
@@ -416,7 +439,9 @@ async def chat(
     },
 )
 async def get_chat_history(
-    limit: int = Query(20, ge=1, le=100, description="Maximum messages to return", example=20),
+    limit: int = Query(
+        20, ge=1, le=100, description="Maximum messages to return", example=20
+    ),
     skip: int = Query(0, ge=0, description="Pagination offset", example=0),
     db: Session = Depends(get_db),
     current_user: Dict[str, Any] = Depends(get_current_user),
@@ -446,7 +471,9 @@ async def get_chat_history(
         messages: List[ChatHistoryItem] = []
         for entry in reversed(history):
             messages.append(
-                ChatHistoryItem(role="human", content=entry.message, timestamp=entry.created_at)
+                ChatHistoryItem(
+                    role="human", content=entry.message, timestamp=entry.created_at
+                )
             )
             if entry.ai_response:
                 messages.append(
@@ -467,7 +494,9 @@ async def get_chat_history(
     except HTTPException:
         raise
     except Exception as exc:
-        logger.exception("Error retrieving chat history for user %s: %s", current_user.get("id"), exc)
+        logger.exception(
+            "Error retrieving chat history for user %s: %s", current_user.get("id"), exc
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve chat history.",
@@ -527,6 +556,7 @@ async def seed_rag(db: Session = Depends(get_db)) -> Dict[str, Any]:
     from app.scripts.seed_faqs import FAQS
 
     try:
+
         def _do_seed() -> int:
             rag = HokuRAG(db=db)
             rag.create_vector_store()
@@ -611,7 +641,9 @@ async def search_rag(
     operation_id="list_doctors_by_specialty",
     tags=["Doctors"],
     description="Retrieve available doctors filtered by medical specialty, most experienced first.",
-    responses={status.HTTP_401_UNAUTHORIZED: _ERROR_RESPONSES[status.HTTP_401_UNAUTHORIZED]},
+    responses={
+        status.HTTP_401_UNAUTHORIZED: _ERROR_RESPONSES[status.HTTP_401_UNAUTHORIZED]
+    },
 )
 async def list_doctors_by_specialty(
     specialty: str = Query(
@@ -661,7 +693,9 @@ async def list_doctors_by_specialty(
     operation_id="get_doctor_availability",
     tags=["Doctors"],
     description="Retrieve a doctor's weekly schedule and booked slots.",
-    responses={status.HTTP_401_UNAUTHORIZED: _ERROR_RESPONSES[status.HTTP_401_UNAUTHORIZED]},
+    responses={
+        status.HTTP_401_UNAUTHORIZED: _ERROR_RESPONSES[status.HTTP_401_UNAUTHORIZED]
+    },
 )
 async def get_doctor_schedule(
     doctor_id: int = Path(..., ge=1, description="Doctor ID", example=3),
@@ -689,7 +723,9 @@ async def get_doctor_schedule(
             return []
         return [DoctorAvailability.model_validate(s) for s in slots]
     except Exception as exc:
-        logger.exception("Failed to get availability for doctor_id=%s: %s", doctor_id, exc)
+        logger.exception(
+            "Failed to get availability for doctor_id=%s: %s", doctor_id, exc
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve doctor availability.",
@@ -709,7 +745,9 @@ async def get_doctor_schedule(
         "Returns the human-readable safety & performance summary. For "
         "Prometheus scraping use the root `/metrics` endpoint instead."
     ),
-    responses={status.HTTP_401_UNAUTHORIZED: _ERROR_RESPONSES[status.HTTP_401_UNAUTHORIZED]},
+    responses={
+        status.HTTP_401_UNAUTHORIZED: _ERROR_RESPONSES[status.HTTP_401_UNAUTHORIZED]
+    },
 )
 async def get_monitoring_metrics(
     current_user: Dict[str, Any] = Depends(get_current_user),
@@ -729,7 +767,9 @@ async def get_monitoring_metrics(
     try:
         metrics = get_metrics()
         summary = metrics.get_summary()
-        logger.info("Monitoring metrics requested by user_id=%s", current_user.get("id"))
+        logger.info(
+            "Monitoring metrics requested by user_id=%s", current_user.get("id")
+        )
         return {"status": "ok", "metrics": summary}
     except Exception as exc:
         logger.exception("Failed to retrieve monitoring metrics: %s", exc)

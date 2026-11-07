@@ -31,7 +31,11 @@ def test_get_embedding_returns_384_dim_vector():
 def test_batch_embed_returns_correct_shape():
     """batch_embed should return one 384-dim vector per input text."""
     manager = EmbeddingManager()
-    texts = ["What services do you offer?", "How do I book a nurse?", "Emergency numbers?"]
+    texts = [
+        "What services do you offer?",
+        "How do I book a nurse?",
+        "Emergency numbers?",
+    ]
     vectors = manager.batch_embed(texts)
     assert len(vectors) == len(texts)
     for vector in vectors:
@@ -51,7 +55,12 @@ def test_get_embedding_empty_text_returns_zero_vector():
 def _make_document(question: str, answer: str, category: str, score: float) -> Document:
     return Document(
         page_content=f"Q: {question}\nA: {answer}",
-        metadata={"question": question, "answer": answer, "category": category, "score": score},
+        metadata={
+            "question": question,
+            "answer": answer,
+            "category": category,
+            "score": score,
+        },
     )
 
 
@@ -59,7 +68,9 @@ def test_similarity_search_returns_document_list():
     """similarity_search should return a list of Document objects."""
     rag = HokuRAG.__new__(HokuRAG)  # bypass __init__ (avoids real DB/model load)
     mock_results = [
-        _make_document("What services do you offer?", "Home nursing, physio...", "services", 0.91),
+        _make_document(
+            "What services do you offer?", "Home nursing, physio...", "services", 0.91
+        ),
         _make_document("How do I book a nurse?", "Use the app...", "booking", 0.83),
     ]
     with patch.object(HokuRAG, "similarity_search", return_value=mock_results):

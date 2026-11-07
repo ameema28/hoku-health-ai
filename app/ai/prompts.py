@@ -54,15 +54,20 @@ Correct format:
 }}
 """
 
-chat_prompt_template = ChatPromptTemplate.from_messages([
-    ("system", SYSTEM_PROMPT),
-    MessagesPlaceholder(variable_name="history"),
-    ("human", """Patient message: {message}
+chat_prompt_template = ChatPromptTemplate.from_messages(
+    [
+        ("system", SYSTEM_PROMPT),
+        MessagesPlaceholder(variable_name="history"),
+        (
+            "human",
+            """Patient message: {message}
 Context: {context}
 
 Remember: respond ONLY in the required JSON format. Do not include markdown code blocks or extra text outside the JSON object.
-"""),
-])
+""",
+        ),
+    ]
+)
 
 # ---------------------------------------------------------------------------
 # RAG SYSTEM PROMPT (Day 5, unchanged)
@@ -105,15 +110,20 @@ Correct format:
 }}
 """
 
-rag_chat_prompt_template = ChatPromptTemplate.from_messages([
-    ("system", RAG_SYSTEM_PROMPT),
-    MessagesPlaceholder(variable_name="history"),
-    ("human", """Patient message: {message}
+rag_chat_prompt_template = ChatPromptTemplate.from_messages(
+    [
+        ("system", RAG_SYSTEM_PROMPT),
+        MessagesPlaceholder(variable_name="history"),
+        (
+            "human",
+            """Patient message: {message}
 Context: {context}
 
 Remember: respond ONLY in the required JSON format. Do not include markdown code blocks or extra text outside the JSON object.
-"""),
-])
+""",
+        ),
+    ]
+)
 
 # ---------------------------------------------------------------------------
 # SPECIALIST SUGGESTION PROMPT (Day 6, unchanged)
@@ -174,10 +184,12 @@ Now classify this message:
 Respond ONLY with JSON: {{"intent": "category", "confidence": 0.0-1.0}}
 """
 
-intent_classification_prompt_template = ChatPromptTemplate.from_messages([
-    ("system", INTENT_SYSTEM_PROMPT),
-    ("human", INTENT_CLASSIFICATION_PROMPT),
-])
+intent_classification_prompt_template = ChatPromptTemplate.from_messages(
+    [
+        ("system", INTENT_SYSTEM_PROMPT),
+        ("human", INTENT_CLASSIFICATION_PROMPT),
+    ]
+)
 
 # ---------------------------------------------------------------------------
 # DAY 7: SAFETY SYSTEM APPENDIX (New)

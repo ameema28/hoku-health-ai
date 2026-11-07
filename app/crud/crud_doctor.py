@@ -49,7 +49,9 @@ def get_doctors_by_specialty(db: Session, specialty: str) -> List[Doctor]:
         return result
     except Exception as exc:
         db.rollback()
-        logger.error("Failed to retrieve doctors for specialty='%s': %s", specialty, exc)
+        logger.error(
+            "Failed to retrieve doctors for specialty='%s': %s", specialty, exc
+        )
         raise DatabaseOperationException("Failed to retrieve doctors") from exc
 
 
@@ -71,7 +73,9 @@ def get_doctor_by_id(db: Session, doctor_id: int) -> Optional[Doctor]:
         stmt = select(Doctor).where(Doctor.id == doctor_id)
         result = db.execute(stmt).scalar_one_or_none()
         if result:
-            logger.info("Retrieved doctor id=%d, specialty='%s'", result.id, result.specialty)
+            logger.info(
+                "Retrieved doctor id=%d, specialty='%s'", result.id, result.specialty
+            )
         else:
             logger.warning("Doctor id=%d not found", doctor_id)
         return result
@@ -101,11 +105,15 @@ def get_doctor_availability(
         DatabaseOperationException: If the query fails.
     """
     try:
-        stmt = select(DoctorAvailability).where(DoctorAvailability.doctor_id == doctor_id)
+        stmt = select(DoctorAvailability).where(
+            DoctorAvailability.doctor_id == doctor_id
+        )
         if not include_booked:
             stmt = stmt.where(DoctorAvailability.is_booked == False)  # noqa: E712
 
-        stmt = stmt.order_by(DoctorAvailability.day_of_week, DoctorAvailability.start_time)
+        stmt = stmt.order_by(
+            DoctorAvailability.day_of_week, DoctorAvailability.start_time
+        )
         result = db.execute(stmt).scalars().all()
         logger.info(
             "Retrieved %d availability slots for doctor_id=%d (include_booked=%s)",
@@ -121,4 +129,6 @@ def get_doctor_availability(
             doctor_id,
             exc,
         )
-        raise DatabaseOperationException("Failed to retrieve doctor availability") from exc
+        raise DatabaseOperationException(
+            "Failed to retrieve doctor availability"
+        ) from exc

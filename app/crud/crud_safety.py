@@ -68,9 +68,7 @@ def log_safety_violation(
             user_id,
             exc,
         )
-        raise DatabaseOperationException(
-            "Failed to persist safety log"
-        ) from exc
+        raise DatabaseOperationException("Failed to persist safety log") from exc
 
 
 def get_safety_logs_by_user(
@@ -120,9 +118,7 @@ def get_safety_logs_by_user(
             user_id,
             exc,
         )
-        raise DatabaseOperationException(
-            "Failed to retrieve safety logs"
-        ) from exc
+        raise DatabaseOperationException("Failed to retrieve safety logs") from exc
 
 
 def get_safety_logs_by_type(

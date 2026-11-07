@@ -53,11 +53,11 @@ def create_pooled_engine(database_url: str):
 
     engine = create_engine(
         database_url,
-        pool_pre_ping=True,      # Verify connection health before checkout
-        pool_size=10,            # Baseline persistent connections
-        max_overflow=20,         # Burst capacity for traffic spikes
-        pool_recycle=3600,       # Recycle after 1 hour (stale connection prevention)
-        pool_timeout=30,         # Max seconds to wait for a connection from pool
+        pool_pre_ping=True,  # Verify connection health before checkout
+        pool_size=10,  # Baseline persistent connections
+        max_overflow=20,  # Burst capacity for traffic spikes
+        pool_recycle=3600,  # Recycle after 1 hour (stale connection prevention)
+        pool_timeout=30,  # Max seconds to wait for a connection from pool
         echo=settings.DEBUG,
         connect_args=connect_args,
     )

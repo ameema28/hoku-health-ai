@@ -58,21 +58,25 @@ class ResponseOptimizer:
     # Per-stage time allocations (sum of serial stages + concurrent max ≤ 3.5s)
     # REALISTIC budgets for Windows/SQLite cold-start development environment.
     TIME_BUDGETS: dict[str, float] = {
-        "emergency_detect": 0.05,   # Regex: ~5ms actual
+        "emergency_detect": 0.05,  # Regex: ~5ms actual
         "intent_classify": max(0.60, float(ai_settings.INTENT_CLASSIFICATION_TIMEOUT)),
-        "memory_load": 0.60,        # SQLite cold-start: 300-500ms
-        "rag_retrieve": 0.50,       # Embedding + similarity search
-        "llm_generate": 1.40,       # Main LLM with compressed prompt
-        "safety_check": 0.10,       # Regex validation: ~5-20ms
-        "db_persist": 0.10,         # INSERT + COMMIT
-        "doctor_lookup": 0.20,      # Symptom extract + DB query
+        "memory_load": 0.60,  # SQLite cold-start: 300-500ms
+        "rag_retrieve": 0.50,  # Embedding + similarity search
+        "llm_generate": 1.40,  # Main LLM with compressed prompt
+        "safety_check": 0.10,  # Regex validation: ~5-20ms
+        "db_persist": 0.10,  # INSERT + COMMIT
+        "doctor_lookup": 0.20,  # Symptom extract + DB query
     }
 
     # Stages executed concurrently via asyncio.gather. Their budgets must NOT
     # be summed against MAX_TOTAL_TIME — the wall-clock cost is max(), not sum().
-    CONCURRENT_STAGES: frozenset = frozenset({
-        "intent_classify", "memory_load", "rag_retrieve",
-    })
+    CONCURRENT_STAGES: frozenset = frozenset(
+        {
+            "intent_classify",
+            "memory_load",
+            "rag_retrieve",
+        }
+    )
 
     @classmethod
     def expected_serial_time(cls) -> float:
@@ -86,7 +90,8 @@ class ResponseOptimizer:
             cls.TIME_BUDGETS[stage] for stage in cls.CONCURRENT_STAGES
         )
         sequential_cost = sum(
-            budget for stage, budget in cls.TIME_BUDGETS.items()
+            budget
+            for stage, budget in cls.TIME_BUDGETS.items()
             if stage not in cls.CONCURRENT_STAGES
         )
         return round(concurrent_cost + sequential_cost, 3)
@@ -216,7 +221,9 @@ async def generate_with_timeout(
         if asyncio.iscoroutine(coro_or_func):
             result = await asyncio.wait_for(coro_or_func, timeout=timeout)
         elif asyncio.iscoroutinefunction(coro_or_func):
-            result = await asyncio.wait_for(coro_or_func(*args, **kwargs), timeout=timeout)
+            result = await asyncio.wait_for(
+                coro_or_func(*args, **kwargs), timeout=timeout
+            )
         else:
             thread_task = asyncio.to_thread(coro_or_func, *args, **kwargs)
             result = await asyncio.wait_for(thread_task, timeout=timeout)

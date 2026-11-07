@@ -12,7 +12,11 @@ import pytest
 
 from app.ai.specialist_mapper import SpecialistMapper
 from app.ai.symptom_extractor import extract_symptoms_from_text, _regex_extract_symptoms
-from app.crud.crud_doctor import get_doctors_by_specialty, get_doctor_by_id, get_doctor_availability
+from app.crud.crud_doctor import (
+    get_doctors_by_specialty,
+    get_doctor_by_id,
+    get_doctor_availability,
+)
 from app.models.models_doctor import Doctor
 from app.models.doctor_availability import DoctorAvailability
 
@@ -21,8 +25,8 @@ from app.models.doctor_availability import DoctorAvailability
 # SpecialistMapper Tests
 # ------------------------------------------------------------------
 
-class TestSpecialistMapper:
 
+class TestSpecialistMapper:
     def test_exact_match_fever_to_general_physician(self):
         result = SpecialistMapper.map_symptoms_to_specialist(["fever"])
         assert result == "General Physician"
@@ -70,7 +74,9 @@ class TestSpecialistMapper:
             "app.ai.specialist_mapper.get_doctors_by_specialty",
             return_value=[mock_doctor],
         ):
-            doctors = SpecialistMapper.get_doctors_by_specialist(mock_db, "Cardiologist")
+            doctors = SpecialistMapper.get_doctors_by_specialist(
+                mock_db, "Cardiologist"
+            )
             assert len(doctors) == 1
             assert doctors[0].specialty == "Cardiologist"
 
@@ -95,8 +101,8 @@ class TestSpecialistMapper:
 # SymptomExtractor Tests
 # ------------------------------------------------------------------
 
-class TestSymptomExtractor:
 
+class TestSymptomExtractor:
     def test_regex_extract_fever(self):
         result = _regex_extract_symptoms("I have a fever and headache")
         assert "fever" in result
@@ -158,8 +164,8 @@ class TestSymptomExtractor:
 # Doctor CRUD Tests (Mocked DB)
 # ------------------------------------------------------------------
 
-class TestDoctorCrud:
 
+class TestDoctorCrud:
     def test_get_doctors_by_specialty(self):
         mock_db = MagicMock()
         mock_doctor = MagicMock(spec=Doctor)
@@ -238,8 +244,8 @@ class TestDoctorCrud:
 # Integration-style Tests
 # ------------------------------------------------------------------
 
-class TestSpecialistIntegration:
 
+class TestSpecialistIntegration:
     @pytest.mark.asyncio
     async def test_end_to_end_symptom_to_doctor_suggestion(self):
         """

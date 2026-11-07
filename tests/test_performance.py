@@ -32,6 +32,7 @@ from app.ai.ai_performance import ResponseOptimizer, generate_with_timeout
 # Fixtures
 # ------------------------------------------------------------------
 
+
 @pytest.fixture
 def response_cache():
     """Provide a fresh ResponseCache instance for each test."""
@@ -51,8 +52,8 @@ def optimizer():
 # ResponseOptimizer Tests
 # ------------------------------------------------------------------
 
-class TestResponseOptimizer:
 
+class TestResponseOptimizer:
     def test_max_total_time_constant(self, optimizer):
         """MAX_TOTAL_TIME must be 3.5s for NFR-02 compliance."""
         assert optimizer.MAX_TOTAL_TIME == 3.5
@@ -111,11 +112,12 @@ class TestResponseOptimizer:
 # generate_with_timeout Tests
 # ------------------------------------------------------------------
 
-class TestGenerateWithTimeout:
 
+class TestGenerateWithTimeout:
     @pytest.mark.asyncio
     async def test_completes_within_budget(self):
         """Fast coroutine completes successfully within timeout."""
+
         async def fast_task():
             await asyncio.sleep(0.01)
             return "success"
@@ -126,6 +128,7 @@ class TestGenerateWithTimeout:
     @pytest.mark.asyncio
     async def test_enforces_timeout_fallback(self):
         """Slow coroutine returns fallback on timeout."""
+
         async def slow_task():
             await asyncio.sleep(10.0)
             return "should_not_return"
@@ -140,6 +143,7 @@ class TestGenerateWithTimeout:
     @pytest.mark.asyncio
     async def test_timeout_with_async_function(self):
         """Timeout works with async function (not just coroutine)."""
+
         async def slow_async_func():
             await asyncio.sleep(10.0)
             return "nope"
@@ -154,6 +158,7 @@ class TestGenerateWithTimeout:
     @pytest.mark.asyncio
     async def test_timeout_with_sync_callable(self):
         """Timeout works with synchronous callable via thread pool."""
+
         def slow_sync_func():
             time.sleep(10.0)
             return "nope"
@@ -168,6 +173,7 @@ class TestGenerateWithTimeout:
     @pytest.mark.asyncio
     async def test_exception_returns_fallback(self):
         """Exception in coroutine returns fallback, not raises."""
+
         async def failing_task():
             raise ValueError("intentional failure")
 
@@ -181,6 +187,7 @@ class TestGenerateWithTimeout:
     @pytest.mark.asyncio
     async def test_default_fallback_is_none(self):
         """Default fallback_value is None when not specified."""
+
         async def slow_task():
             await asyncio.sleep(10.0)
             return "nope"
@@ -193,8 +200,8 @@ class TestGenerateWithTimeout:
 # ResponseCache Tests
 # ------------------------------------------------------------------
 
-class TestResponseCache:
 
+class TestResponseCache:
     def test_cache_hit_performance_under_5ms(self, response_cache):
         """Cache hit must complete in < 5ms."""
         # Pre-populate cache
@@ -256,7 +263,9 @@ class TestResponseCache:
     def test_should_cache_denies_symptom(self, response_cache):
         """Symptom inquiries must never be cached."""
         assert response_cache.should_cache("symptom", is_emergency=False) is False
-        assert response_cache.should_cache("symptom_inquiry", is_emergency=False) is False
+        assert (
+            response_cache.should_cache("symptom_inquiry", is_emergency=False) is False
+        )
 
     def test_should_cache_allows_general(self, response_cache):
         """General queries may be cached."""
@@ -272,7 +281,9 @@ class TestResponseCache:
 
     def test_should_cache_defaults_deny_unknown(self, response_cache):
         """Unknown intents default to deny (safety-first)."""
-        assert response_cache.should_cache("unknown_intent", is_emergency=False) is False
+        assert (
+            response_cache.should_cache("unknown_intent", is_emergency=False) is False
+        )
 
     def test_cache_safety_never_stores_emergency(self, response_cache):
         """set() must refuse to store emergency responses."""
@@ -335,8 +346,8 @@ class TestResponseCache:
 # LLMFactory Tests
 # ------------------------------------------------------------------
 
-class TestLLMFactory:
 
+class TestLLMFactory:
     def test_compress_prompt_trims_history(self):
         """compress_prompt keeps only last N messages."""
         history = [
@@ -435,11 +446,12 @@ class TestLLMFactory:
 # Fallback Responses Tests
 # ------------------------------------------------------------------
 
-class TestFallbackResponses:
 
+class TestFallbackResponses:
     def test_fallback_general_contains_disclaimer(self):
         """All fallback responses must include the clinical disclaimer."""
         from app.utils.constants import SAFETY_DISCLAIMER
+
         assert SAFETY_DISCLAIMER in FALLBACK_GENERAL
 
     def test_fallback_emergency_contains_disclaimer(self):
@@ -478,8 +490,8 @@ class TestFallbackResponses:
 # Integration Tests — Budget + Timeout + Cache
 # ------------------------------------------------------------------
 
-class TestPerformanceIntegration:
 
+class TestPerformanceIntegration:
     @pytest.mark.asyncio
     async def test_full_pipeline_budget_enforcement(self, optimizer):
         """Simulate a full pipeline with budget checks at each stage."""

@@ -22,6 +22,7 @@ class SafetyLogCreate(BaseModel):
         violation_type: Category of safety event.
         severity: Impact level ("high", "moderate", "low").
     """
+
     model_config = ConfigDict(from_attributes=True)
 
     user_id: Optional[int] = Field(
@@ -39,7 +40,12 @@ class SafetyLogCreate(BaseModel):
     violation_type: str = Field(
         ...,
         description="Category of safety event.",
-        examples=["diagnosis_attempt", "prescription_advice", "missing_disclaimer", "emergency_triggered"],
+        examples=[
+            "diagnosis_attempt",
+            "prescription_advice",
+            "missing_disclaimer",
+            "emergency_triggered",
+        ],
     )
     severity: str = Field(
         ...,
@@ -61,6 +67,7 @@ class SafetyLogRead(BaseModel):
         severity: Impact level.
         created_at: ISO timestamp of the event.
     """
+
     model_config = ConfigDict(from_attributes=True)
 
     id: int = Field(..., description="Safety log primary key.")
@@ -82,6 +89,7 @@ class SafetyCheckResult(BaseModel):
         sanitized_response: The cleaned response after safety processing.
         severity: Overall severity of the most critical violation.
     """
+
     model_config = ConfigDict(from_attributes=True)
 
     is_safe: bool = Field(

@@ -103,12 +103,12 @@ _RED_FLAG_MODERATE: list[str] = [
 
 # Pre-compile regex patterns for O(1) matching performance
 _HIGH_URGENCY_PATTERN = re.compile(
-    r'\b(' + '|'.join(re.escape(kw) for kw in _RED_FLAG_HIGH) + r')\b',
+    r"\b(" + "|".join(re.escape(kw) for kw in _RED_FLAG_HIGH) + r")\b",
     re.IGNORECASE,
 )
 
 _MODERATE_URGENCY_PATTERN = re.compile(
-    r'\b(' + '|'.join(re.escape(kw) for kw in _RED_FLAG_MODERATE) + r')\b',
+    r"\b(" + "|".join(re.escape(kw) for kw in _RED_FLAG_MODERATE) + r")\b",
     re.IGNORECASE,
 )
 
@@ -283,12 +283,22 @@ class EmergencyDetector:
         but containing health-related uncertainty language.
         """
         uncertainty_keywords = [
-            "worried", "scared", "afraid", "don't know", "not sure",
-            "something wrong", "feels wrong", "strange", "unusual",
-            "never felt", "different", "weird", "alarming",
+            "worried",
+            "scared",
+            "afraid",
+            "don't know",
+            "not sure",
+            "something wrong",
+            "feels wrong",
+            "strange",
+            "unusual",
+            "never felt",
+            "different",
+            "weird",
+            "alarming",
         ]
         uncertainty_pattern = re.compile(
-            r'\b(' + '|'.join(re.escape(kw) for kw in uncertainty_keywords) + r')\b',
+            r"\b(" + "|".join(re.escape(kw) for kw in uncertainty_keywords) + r")\b",
             re.IGNORECASE,
         )
         return bool(uncertainty_pattern.search(message))
@@ -336,8 +346,8 @@ class EmergencyDetector:
             # Parse JSON
             cleaned = raw_text.strip()
             if cleaned.startswith("```"):
-                cleaned = re.sub(r'^```(?:json)?\s*', '', cleaned, flags=re.IGNORECASE)
-                cleaned = re.sub(r'\s*```$', '', cleaned)
+                cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
+                cleaned = re.sub(r"\s*```$", "", cleaned)
 
             data = json.loads(cleaned)
             if isinstance(data, dict):
@@ -346,7 +356,11 @@ class EmergencyDetector:
                 reason = data.get("reason", "tier2_llm_ambiguous")
 
                 # Validate urgency
-                if urgency not in (cls.URGENCY_HIGH, cls.URGENCY_MODERATE, cls.URGENCY_NONE):
+                if urgency not in (
+                    cls.URGENCY_HIGH,
+                    cls.URGENCY_MODERATE,
+                    cls.URGENCY_NONE,
+                ):
                     urgency = cls.URGENCY_HIGH if is_emergency else cls.URGENCY_NONE
 
                 return (is_emergency, urgency, reason)
@@ -400,13 +414,16 @@ class EmergencyDetector:
             return dict(cls.URGENCY_RESPONSES[cls.URGENCY_MODERATE])
         else:
             # Unknown urgency defaults to high (safety bias)
-            logger.warning("Unknown urgency_level='%s', defaulting to high", urgency_level)
+            logger.warning(
+                "Unknown urgency_level='%s', defaulting to high", urgency_level
+            )
             return dict(cls.URGENCY_RESPONSES[cls.URGENCY_HIGH])
 
 
 # ------------------------------------------------------------------
 # Backwards-compatible module-level functions (Day 0-6 API preserved)
 # ------------------------------------------------------------------
+
 
 def detect_emergency(message: str) -> bool:
     """

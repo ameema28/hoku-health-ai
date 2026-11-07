@@ -141,11 +141,13 @@ def auth_headers() -> Dict[str, str]:
     """Authorization header for USER_ID."""
     return {"Authorization": _make_token()}
 
-        
+
 # ---------------------------------------------------------------------------
 # 1. Full flow
 # ---------------------------------------------------------------------------
-def test_full_chat_flow_returns_valid_schema(client: TestClient, auth_headers: Dict[str, str]) -> None:
+def test_full_chat_flow_returns_valid_schema(
+    client: TestClient, auth_headers: Dict[str, str]
+) -> None:
     """A normal question returns 200 and a schema-valid, disclaimer-bearing reply."""
     chain = MagicMock()
     chain.invoke = MagicMock(
@@ -163,7 +165,13 @@ def test_full_chat_flow_returns_valid_schema(client: TestClient, auth_headers: D
 
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    for key in ("reply", "suggestedSpecialist", "severity", "shouldSeeDoctor", "intent"):
+    for key in (
+        "reply",
+        "suggestedSpecialist",
+        "severity",
+        "shouldSeeDoctor",
+        "intent",
+    ):
         assert key in body
     assert SAFETY_DISCLAIMER in body["reply"]
     # Rate-limit headers are attached on success.
@@ -174,7 +182,9 @@ def test_full_chat_flow_returns_valid_schema(client: TestClient, auth_headers: D
 # ---------------------------------------------------------------------------
 # 2. Emergency headers
 # ---------------------------------------------------------------------------
-def test_emergency_sets_hoku_emergency_headers(client: TestClient, auth_headers: Dict[str, str]) -> None:
+def test_emergency_sets_hoku_emergency_headers(
+    client: TestClient, auth_headers: Dict[str, str]
+) -> None:
     """A red-flag message short-circuits to an emergency response with headers."""
     # Emergency detection is pure regex and runs before any LLM call, so no
     # chain patch is needed - but we patch it anyway to guarantee the LLM is
@@ -182,7 +192,10 @@ def test_emergency_sets_hoku_emergency_headers(client: TestClient, auth_headers:
     with patch("app.ai.chatbot.LLMChain", return_value=MagicMock()):
         resp = client.post(
             "/api/ai/chat",
-            json={"message": "I have severe chest pain and can't breathe", "userId": USER_ID},
+            json={
+                "message": "I have severe chest pain and can't breathe",
+                "userId": USER_ID,
+            },
             headers=auth_headers,
         )
 
@@ -199,12 +212,12 @@ def test_emergency_sets_hoku_emergency_headers(client: TestClient, auth_headers:
 # ---------------------------------------------------------------------------
 # 3. Multi-turn memory
 # ---------------------------------------------------------------------------
-def test_multi_turn_memory_persists(client: TestClient, auth_headers: Dict[str, str]) -> None:
+def test_multi_turn_memory_persists(
+    client: TestClient, auth_headers: Dict[str, str]
+) -> None:
     """Two turns are both persisted and retrievable via /chat/history."""
     chain = MagicMock()
-    chain.invoke = MagicMock(
-        return_value=_llm_payload("Noted. " + SAFETY_DISCLAIMER)
-    )
+    chain.invoke = MagicMock(return_value=_llm_payload("Noted. " + SAFETY_DISCLAIMER))
 
     with patch("app.ai.chatbot.LLMChain", return_value=chain):
         first = client.post(
@@ -232,7 +245,9 @@ def test_multi_turn_memory_persists(client: TestClient, auth_headers: Dict[str, 
 # ---------------------------------------------------------------------------
 # 4. RAG grounding
 # ---------------------------------------------------------------------------
-def test_rag_grounded_response_uses_faq_context(client: TestClient, auth_headers: Dict[str, str]) -> None:
+def test_rag_grounded_response_uses_faq_context(
+    client: TestClient, auth_headers: Dict[str, str]
+) -> None:
     """RAG-eligible query returns a valid, disclaimer-bearing 200 response.
 
     The pipeline guards against MagicMock-patched build_context (a Day 8
@@ -243,7 +258,8 @@ def test_rag_grounded_response_uses_faq_context(client: TestClient, auth_headers
     chain = MagicMock()
     chain.invoke = MagicMock(
         return_value=_llm_payload(
-            "Hoku offers home health, palliative, and hospice care. " + SAFETY_DISCLAIMER
+            "Hoku offers home health, palliative, and hospice care. "
+            + SAFETY_DISCLAIMER
         )
     )
 
@@ -287,12 +303,16 @@ def test_reply_always_contains_disclaimer_even_if_llm_omits_it(
 # ---------------------------------------------------------------------------
 # 6. Performance under mocked LLM
 # ---------------------------------------------------------------------------
-def test_response_time_under_nfr02_ceiling(client: TestClient, auth_headers: Dict[str, str]) -> None:
+def test_response_time_under_nfr02_ceiling(
+    client: TestClient, auth_headers: Dict[str, str]
+) -> None:
     """With the LLM mocked, the whole round-trip stays comfortably under 4s."""
     import time
 
     chain = MagicMock()
-    chain.invoke = MagicMock(return_value=_llm_payload("All good. " + SAFETY_DISCLAIMER))
+    chain.invoke = MagicMock(
+        return_value=_llm_payload("All good. " + SAFETY_DISCLAIMER)
+    )
 
     with patch("app.ai.chatbot.LLMChain", return_value=chain):
         started = time.perf_counter()

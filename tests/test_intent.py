@@ -19,6 +19,7 @@ from app.ai.intent_classifier import IntentClassifier, IntentEnum
 # Fixtures
 # ------------------------------------------------------------------
 
+
 @pytest.fixture
 def mock_settings():
     """Mock AI settings for intent classification."""
@@ -46,13 +47,29 @@ def mock_chain():
         message = inputs.get("message", "").lower()
         # More specific keyword matching — order matters!
         # Emergency first (safety), then specific categories
-        if any(kw in message for kw in ["emergency", "chest pain", "can't breathe", "unconscious"]):
+        if any(
+            kw in message
+            for kw in ["emergency", "chest pain", "can't breathe", "unconscious"]
+        ):
             return {"text": json.dumps({"intent": "emergency", "confidence": 0.99})}
         elif any(kw in message for kw in ["book", "appointment", "schedule"]):
             return {"text": json.dumps({"intent": "booking", "confidence": 0.92})}
-        elif any(kw in message for kw in ["medicine", "paracetamol", "insulin", "dosage", "prescription", "take my"]):
+        elif any(
+            kw in message
+            for kw in [
+                "medicine",
+                "paracetamol",
+                "insulin",
+                "dosage",
+                "prescription",
+                "take my",
+            ]
+        ):
             return {"text": json.dumps({"intent": "medication", "confidence": 0.93})}
-        elif any(kw in message for kw in ["headache", "fever", "pain", "symptom", "hurt", "ache"]):
+        elif any(
+            kw in message
+            for kw in ["headache", "fever", "pain", "symptom", "hurt", "ache"]
+        ):
             return {"text": json.dumps({"intent": "symptom", "confidence": 0.95})}
         else:
             return {"text": json.dumps({"intent": "general", "confidence": 0.88})}
@@ -65,8 +82,8 @@ def mock_chain():
 # IntentClassifier Tests
 # ------------------------------------------------------------------
 
-class TestIntentClassifier:
 
+class TestIntentClassifier:
     @pytest.mark.asyncio
     async def test_classify_symptom_intent(self, classifier, mock_chain):
         """Test classification of symptom-related messages."""
@@ -111,9 +128,7 @@ class TestIntentClassifier:
         """Test classification of general health questions."""
         classifier._chain = mock_chain
 
-        intent, confidence = await classifier.classify_intent(
-            "What are your services?"
-        )
+        intent, confidence = await classifier.classify_intent("What are your services?")
 
         assert intent == IntentEnum.GENERAL
         assert 0.0 <= confidence <= 1.0
@@ -229,8 +244,8 @@ class TestIntentClassifier:
 # EmergencyDetector Tests
 # ------------------------------------------------------------------
 
-class TestEmergencyDetector:
 
+class TestEmergencyDetector:
     def test_detect_emergency_chest_pain(self):
         """Test detection of chest pain emergency."""
         assert detect_emergency("I have severe chest pain") is True
@@ -283,12 +298,13 @@ class TestEmergencyDetector:
     def test_detect_emergency_performance(self):
         """Test that emergency detection completes in < 50ms."""
         import time
+
         start = time.perf_counter()
         for _ in range(100):
             detect_emergency("I have chest pain and can't breathe")
         elapsed = time.perf_counter() - start
         # 100 calls should take < 100ms total (1ms per call)
-        assert elapsed < 0.5   # stable on Windows
+        assert elapsed < 0.5  # stable on Windows
 
     def test_get_emergency_response_structure(self):
         """Test emergency response dict has all required fields."""
@@ -313,8 +329,8 @@ class TestEmergencyDetector:
 # Integration Tests
 # ------------------------------------------------------------------
 
-class TestIntentIntegration:
 
+class TestIntentIntegration:
     @pytest.mark.asyncio
     async def test_all_intent_categories(self, classifier, mock_chain):
         """Test that all 5 intent categories are correctly classified."""

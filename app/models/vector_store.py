@@ -43,7 +43,9 @@ except ImportError:
 # current setup) we fall back to a JSON column so the model -- and
 # every module that imports it -- stays importable and testable
 # without a live pgvector database.
-_USE_PGVECTOR_COLUMN = PGVECTOR_AVAILABLE and settings.DATABASE_URL.startswith("postgresql")
+_USE_PGVECTOR_COLUMN = PGVECTOR_AVAILABLE and settings.DATABASE_URL.startswith(
+    "postgresql"
+)
 
 
 class VectorStore(Base):

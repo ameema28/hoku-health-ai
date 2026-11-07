@@ -24,7 +24,9 @@ def add_error_handlers(app: FastAPI) -> None:
     """
 
     @app.exception_handler(StarletteHTTPException)
-    async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+    async def http_exception_handler(
+        request: Request, exc: StarletteHTTPException
+    ) -> JSONResponse:
         """
         Handle FastAPI/Starlette HTTP exceptions.
 
@@ -35,14 +37,18 @@ def add_error_handlers(app: FastAPI) -> None:
         Returns:
             JSONResponse: Structured error payload.
         """
-        logger.warning("HTTP %s: %s | Path: %s", exc.status_code, exc.detail, request.url.path)
+        logger.warning(
+            "HTTP %s: %s | Path: %s", exc.status_code, exc.detail, request.url.path
+        )
         return JSONResponse(
             status_code=exc.status_code,
             content={"detail": exc.detail, "status_code": exc.status_code},
         )
 
     @app.exception_handler(Exception)
-    async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    async def generic_exception_handler(
+        request: Request, exc: Exception
+    ) -> JSONResponse:
         """
         Handle unexpected exceptions to prevent stack trace leakage.
 
@@ -56,7 +62,12 @@ def add_error_handlers(app: FastAPI) -> None:
         Returns:
             JSONResponse: Generic error payload with 500 status.
         """
-        logger.error("Unhandled exception at %s: %s\n%s", request.url.path, exc, traceback.format_exc())
+        logger.error(
+            "Unhandled exception at %s: %s\n%s",
+            request.url.path,
+            exc,
+            traceback.format_exc(),
+        )
         return JSONResponse(
             status_code=500,
             content={

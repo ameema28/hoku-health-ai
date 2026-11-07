@@ -6,7 +6,6 @@ Stores day_of_week (0=Monday), start/end times as TEXT for SQLite
 compatibility, and booking status.
 """
 
-
 from sqlalchemy import ForeignKey, Integer, String, Boolean
 from sqlalchemy.orm import Mapped, mapped_column
 

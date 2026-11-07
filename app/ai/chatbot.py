@@ -33,6 +33,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
+
 try:
     from unittest.mock import MagicMock as _MagicMock
 except Exception:
@@ -56,7 +57,10 @@ from app.ai.emergency_detector import EmergencyDetector
 from app.ai.intent_classifier import IntentClassifier, IntentEnum
 from app.ai.llm_optimizer import LLMFactory, compress_prompt  # Day 8: LLM optimization
 from app.ai.memory import HokuConversationMemory
-from app.ai.ai_performance import ResponseOptimizer, generate_with_timeout  # Day 8: Performance layer
+from app.ai.ai_performance import (
+    ResponseOptimizer,
+    generate_with_timeout,
+)  # Day 8: Performance layer
 from app.ai.prompts import chat_prompt_template, rag_chat_prompt_template
 from app.ai.rag import HokuRAG
 from app.ai.safety_guardrails import SafetyGuardrails
@@ -64,7 +68,10 @@ from app.ai.specialist_mapper import SpecialistMapper
 from app.ai.symptom_extractor import extract_symptoms_from_text
 from app.core.monitoring import get_metrics
 from app.crud.crud_doctor import get_doctor_availability
-from app.schemas.schemas_doctor import DoctorAvailability as DoctorAvailabilitySchema, DoctorSuggestion
+from app.schemas.schemas_doctor import (
+    DoctorAvailability as DoctorAvailabilitySchema,
+    DoctorSuggestion,
+)
 from app.utils.constants import SAFETY_DISCLAIMER
 
 logger = logging.getLogger(__name__)
@@ -222,7 +229,9 @@ class HokuChatbot:
                 raise RuntimeError("LLMChain not available")
             if self.main_llm is None:
                 raise RuntimeError("Main LLM not available (check GROQ_API_KEY)")
-            self._chain = LLMChain(llm=self.main_llm, prompt=chat_prompt_template, verbose=False)
+            self._chain = LLMChain(
+                llm=self.main_llm, prompt=chat_prompt_template, verbose=False
+            )
             logger.info("LLMChain built with model=%s", self.main_model)
         return self._chain
 
@@ -294,7 +303,9 @@ class HokuChatbot:
             if top_doctor is None:
                 return None
 
-            slots = get_doctor_availability(db, doctor_id=top_doctor.id, include_booked=False)
+            slots = get_doctor_availability(
+                db, doctor_id=top_doctor.id, include_booked=False
+            )
             availability_schemas = [
                 DoctorAvailabilitySchema.model_validate(slot) for slot in slots[:3]
             ]
@@ -360,7 +371,9 @@ class HokuChatbot:
         # Step 1: Emergency Short-Circuit (< 50ms requirement)
         # ---------------------------------------------------------------
         emergency_start = time.perf_counter()
-        is_emergency, urgency, reason = EmergencyDetector.detect_emergency(message_for_emergency)
+        is_emergency, urgency, reason = EmergencyDetector.detect_emergency(
+            message_for_emergency
+        )
         emergency_elapsed = time.perf_counter() - emergency_start
 
         optimizer.enforce_budget("emergency_detect", emergency_start)
@@ -376,6 +389,7 @@ class HokuChatbot:
 
             try:
                 from app.crud.crud_safety import log_safety_violation
+
                 log_safety_violation(
                     db=db,
                     user_id=user_id,
@@ -427,8 +441,10 @@ class HokuChatbot:
                     )
                     return parsed_cache
                 except json.JSONDecodeError:
-                    logger.warning("Fast-path cache corruption, proceeding with pipeline")
-                    
+                    logger.warning(
+                        "Fast-path cache corruption, proceeding with pipeline"
+                    )
+
         # ---------------------------------------------------------------
         # Step 2: Concurrent Operations (asyncio.gather with return_exceptions)
         # Each task handles its own internal timeout. No outer ceiling.
@@ -551,8 +567,7 @@ class HokuChatbot:
         last_3_messages = []
         if history_list and len(history_list) > 0:
             last_3_messages = [
-                getattr(msg, "content", str(msg))
-                for msg in history_list[-3:]
+                getattr(msg, "content", str(msg)) for msg in history_list[-3:]
             ]
 
         if self.response_cache.should_cache(intent.value, is_emergency=False):
@@ -601,10 +616,28 @@ class HokuChatbot:
             doctor_suggestion = await self._lookup_doctor_suggestion(message, db)
         elif intent == IntentEnum.GENERAL:
             symptom_keywords = [
-                "pain", "fever", "headache", "hurt", "ache", "sick",
-                "nausea", "dizzy", "cough", "breath", "chest", "rash",
-                "swelling", "bleeding", "vomit", "diarrhea", "fatigue",
-                "tired", "weakness", "symptom", "not feeling", "unwell",
+                "pain",
+                "fever",
+                "headache",
+                "hurt",
+                "ache",
+                "sick",
+                "nausea",
+                "dizzy",
+                "cough",
+                "breath",
+                "chest",
+                "rash",
+                "swelling",
+                "bleeding",
+                "vomit",
+                "diarrhea",
+                "fatigue",
+                "tired",
+                "weakness",
+                "symptom",
+                "not feeling",
+                "unwell",
             ]
             if any(kw in message.lower() for kw in symptom_keywords):
                 doctor_suggestion = await self._lookup_doctor_suggestion(message, db)
@@ -650,7 +683,9 @@ class HokuChatbot:
             fallback = self._fallback_response("budget_exhausted")
             fallback["intent"] = intent.value
             fallback["confidence"] = confidence
-            fallback["doctor_suggestion"] = doctor_suggestion.model_dump() if doctor_suggestion else None
+            fallback["doctor_suggestion"] = (
+                doctor_suggestion.model_dump() if doctor_suggestion else None
+            )
             total_elapsed = time.perf_counter() - overall_start
             metrics.record_latency("/api/ai/chat", total_elapsed)
             return fallback
@@ -659,16 +694,23 @@ class HokuChatbot:
             compressed_history = compress_prompt(history_list, max_messages=3)
             self._apply_compressed_history(memory, compressed_history)
 
-            prompt_template = rag_chat_prompt_template if use_rag else chat_prompt_template
-            chain = LLMChain(llm=self.main_llm, prompt=prompt_template, memory=memory, verbose=False)
+            prompt_template = (
+                rag_chat_prompt_template if use_rag else chat_prompt_template
+            )
+            chain = LLMChain(
+                llm=self.main_llm, prompt=prompt_template, memory=memory, verbose=False
+            )
 
-            invoke_input: Dict[str, str] = {"message": message, "context": intent_context}
+            invoke_input: Dict[str, str] = {
+                "message": message,
+                "context": intent_context,
+            }
             if use_rag:
                 invoke_input["faq_context"] = faq_context
 
             llm_timeout = max(
                 _MIN_LLM_TIMEOUT,
-                min(remaining_budget - 0.15, ai_settings.GROQ_TIMEOUT_SECONDS)
+                min(remaining_budget - 0.15, ai_settings.GROQ_TIMEOUT_SECONDS),
             )
 
             bound_invoke = functools.partial(chain.invoke, invoke_input)
@@ -689,7 +731,9 @@ class HokuChatbot:
                 fallback = self._fallback_response("llm_timeout")
                 fallback["intent"] = intent.value
                 fallback["confidence"] = confidence
-                fallback["doctor_suggestion"] = doctor_suggestion.model_dump() if doctor_suggestion else None
+                fallback["doctor_suggestion"] = (
+                    doctor_suggestion.model_dump() if doctor_suggestion else None
+                )
                 total_elapsed = time.perf_counter() - overall_start
                 metrics.record_latency("/api/ai/chat", total_elapsed)
                 return fallback
@@ -705,7 +749,11 @@ class HokuChatbot:
 
             raw_text = self._extract_text_from_result(result)
             estimated_tokens = len(raw_text) // 4
-            logger.info("Estimated response tokens for user_id=%s: ~%d", user_id, estimated_tokens)
+            logger.info(
+                "Estimated response tokens for user_id=%s: ~%d",
+                user_id,
+                estimated_tokens,
+            )
 
             parsed = self._parse_llm_output(raw_text)
             reply = parsed.get("reply", "")
@@ -717,10 +765,12 @@ class HokuChatbot:
             # Step 8: Post-LLM Safety Verification (Day 7)
             # ---------------------------------------------------------------
             safety_start = time.perf_counter()
-            safe_reply, safety_violations, safety_severity = SafetyGuardrails.apply_3_strike_safety(
-                text=parsed.get("reply", ""),
-                user_id=user_id,
-                db=db,
+            safe_reply, safety_violations, safety_severity = (
+                SafetyGuardrails.apply_3_strike_safety(
+                    text=parsed.get("reply", ""),
+                    user_id=user_id,
+                    db=db,
+                )
             )
             safety_elapsed = time.perf_counter() - safety_start
 
@@ -744,15 +794,19 @@ class HokuChatbot:
             # ---------------------------------------------------------------
             cache_persist_start = time.perf_counter()
             if self.response_cache.should_cache(intent.value, is_emergency=False):
-                response_to_cache = json.dumps({
-                    "reply": parsed.get("reply", ""),
-                    "suggestedSpecialist": parsed.get("suggestedSpecialist"),
-                    "severity": parsed.get("severity") or "unknown",
-                    "shouldSeeDoctor": parsed.get("shouldSeeDoctor")
-                    if parsed.get("shouldSeeDoctor") is not None
-                    else True,
-                })
-                cache_key_history = [] if intent == IntentEnum.GENERAL else last_3_messages
+                response_to_cache = json.dumps(
+                    {
+                        "reply": parsed.get("reply", ""),
+                        "suggestedSpecialist": parsed.get("suggestedSpecialist"),
+                        "severity": parsed.get("severity") or "unknown",
+                        "shouldSeeDoctor": parsed.get("shouldSeeDoctor")
+                        if parsed.get("shouldSeeDoctor") is not None
+                        else True,
+                    }
+                )
+                cache_key_history = (
+                    [] if intent == IntentEnum.GENERAL else last_3_messages
+                )
                 self.response_cache.set(
                     message=message,
                     intent=intent.value,
@@ -760,7 +814,9 @@ class HokuChatbot:
                     response=response_to_cache,
                     is_emergency=False,
                 )
-                logger.debug("Response cached for user_id=%s (intent=%s)", user_id, intent.value)
+                logger.debug(
+                    "Response cached for user_id=%s (intent=%s)", user_id, intent.value
+                )
 
             optimizer.enforce_budget("db_persist", cache_persist_start)
 
@@ -773,7 +829,9 @@ class HokuChatbot:
                 else True,
                 "intent": intent.value,
                 "confidence": confidence,
-                "doctor_suggestion": doctor_suggestion.model_dump() if doctor_suggestion else None,
+                "doctor_suggestion": doctor_suggestion.model_dump()
+                if doctor_suggestion
+                else None,
             }
 
             total_elapsed = time.perf_counter() - overall_start
@@ -801,17 +859,23 @@ class HokuChatbot:
             fallback = self._fallback_response("timeout")
             fallback["intent"] = intent.value
             fallback["confidence"] = confidence
-            fallback["doctor_suggestion"] = doctor_suggestion.model_dump() if doctor_suggestion else None
+            fallback["doctor_suggestion"] = (
+                doctor_suggestion.model_dump() if doctor_suggestion else None
+            )
             return fallback
 
         except Exception as exc:
             elapsed = time.perf_counter() - overall_start
-            logger.exception("Groq error after %.3fs for user_id=%s: %s", elapsed, user_id, exc)
+            logger.exception(
+                "Groq error after %.3fs for user_id=%s: %s", elapsed, user_id, exc
+            )
             metrics.record_latency("/api/ai/chat", elapsed)
             fallback = self._fallback_response(str(exc))
             fallback["intent"] = intent.value
             fallback["confidence"] = confidence
-            fallback["doctor_suggestion"] = doctor_suggestion.model_dump() if doctor_suggestion else None
+            fallback["doctor_suggestion"] = (
+                doctor_suggestion.model_dump() if doctor_suggestion else None
+            )
             return fallback
 
     @staticmethod
@@ -851,7 +915,9 @@ class HokuChatbot:
             elif hasattr(item, "content"):
                 rebuilt.append(item)
             else:
-                logger.debug("Unrecognised compressed message type %s; aborting", type(item))
+                logger.debug(
+                    "Unrecognised compressed message type %s; aborting", type(item)
+                )
                 return
 
         try:
@@ -912,10 +978,10 @@ class HokuChatbot:
                         "reply": data.get("reply", ""),
                         "suggestedSpecialist": data.get("suggestedSpecialist"),
                         "severity": (
-                        "unknown"
-                        if data.get("severity") in (None, "null", "Null", "NULL")
-                        else data.get("severity")
-                    ),
+                            "unknown"
+                            if data.get("severity") in (None, "null", "Null", "NULL")
+                            else data.get("severity")
+                        ),
                         "shouldSeeDoctor": data.get("shouldSeeDoctor")
                         if data.get("shouldSeeDoctor") is not None
                         else True,

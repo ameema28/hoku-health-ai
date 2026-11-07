@@ -88,7 +88,20 @@ HOKU_REGISTRY: Any = CollectorRegistry() if PROMETHEUS_AVAILABLE else None
 # `hoku_chatbot_response_time_seconds_bucket{le="4.0"}` divided by
 # `_count` is the compliance ratio straight out of Grafana.
 _LATENCY_BUCKETS: Tuple[float, ...] = (
-    0.005, 0.05, 0.1, 0.25, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 6.0, 10.0,
+    0.005,
+    0.05,
+    0.1,
+    0.25,
+    0.5,
+    1.0,
+    1.5,
+    2.0,
+    2.5,
+    3.0,
+    3.5,
+    4.0,
+    6.0,
+    10.0,
 )
 
 if PROMETHEUS_AVAILABLE:
@@ -380,7 +393,9 @@ class HokuMetrics:
             self._latency_history.append(snapshot)
             # Trim to max size (circular buffer behavior)
             if len(self._latency_history) > self._max_latency_history:
-                self._latency_history = self._latency_history[-self._max_latency_history:]
+                self._latency_history = self._latency_history[
+                    -self._max_latency_history :
+                ]
 
         if PROM_RESPONSE_TIME is not None:
             PROM_RESPONSE_TIME.labels(endpoint=endpoint).observe(elapsed_seconds)
@@ -449,7 +464,9 @@ class HokuMetrics:
                 return 0.0
 
             if endpoint:
-                measurements = [s for s in self._latency_history if s.endpoint == endpoint]
+                measurements = [
+                    s for s in self._latency_history if s.endpoint == endpoint
+                ]
             else:
                 measurements = self._latency_history
 
@@ -474,7 +491,9 @@ class HokuMetrics:
 
             if endpoint:
                 measurements = [
-                    s.elapsed_ms for s in self._latency_history if s.endpoint == endpoint
+                    s.elapsed_ms
+                    for s in self._latency_history
+                    if s.endpoint == endpoint
                 ]
             else:
                 measurements = [s.elapsed_ms for s in self._latency_history]

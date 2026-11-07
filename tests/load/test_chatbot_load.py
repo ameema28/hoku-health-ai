@@ -41,6 +41,7 @@ from jose import jwt
 CONCURRENCY = 50
 NFR02_CEILING_SECONDS = 4.0
 
+
 # ---------------------------------------------------------------------------
 # Shared token helper (mirrors token_gen.py)
 # ---------------------------------------------------------------------------
@@ -163,7 +164,9 @@ async def test_50_concurrent_users() -> None:
     assert not server_errors, f"{len(server_errors)} requests returned 5xx"
 
     ok = [s for s in statuses if s == 200]
-    assert len(ok) == CONCURRENCY, f"only {len(ok)}/{CONCURRENCY} returned 200: {statuses}"
+    assert (
+        len(ok) == CONCURRENCY
+    ), f"only {len(ok)}/{CONCURRENCY} returned 200: {statuses}"
 
     latencies.sort()
     p95_index = min(int(len(latencies) * 0.95), len(latencies) - 1)
@@ -189,6 +192,7 @@ except ImportError:  # pragma: no cover - Locust optional in CI
 
     def task(*args: Any, **kwargs: Any):  # type: ignore[misc]
         """No-op decorator stub when Locust is absent."""
+
         def _decorator(fn):
             return fn
 

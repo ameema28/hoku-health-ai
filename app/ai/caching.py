@@ -224,7 +224,9 @@ class ResponseCache:
         """
         # Safety gate: never store emergency or symptom responses
         if not self.should_cache(intent, is_emergency):
-            logger.debug("Cache SET skipped: intent=%s, is_emergency=%s", intent, is_emergency)
+            logger.debug(
+                "Cache SET skipped: intent=%s, is_emergency=%s", intent, is_emergency
+            )
             return
 
         key = self._generate_key(message, intent, last_3_messages)

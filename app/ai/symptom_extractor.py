@@ -21,15 +21,17 @@ from app.ai.specialist_mapper import SpecialistMapper
 logger = logging.getLogger(__name__)
 
 _SYMPTOM_PATTERN = re.compile(
-    r'\b(' + '|'.join(re.escape(kw) for kw in SpecialistMapper.SPECIALIST_MAP.keys()) + r')\b',
+    r"\b("
+    + "|".join(re.escape(kw) for kw in SpecialistMapper.SPECIALIST_MAP.keys())
+    + r")\b",
     re.IGNORECASE,
 )
 
 _MEDICAL_HINTS_PATTERN = re.compile(
-    r'\b(feel|feeling|hurt|pain|ache|sick|unwell|dizzy|nausea|tired|'
-    r'fatigue|weak|fever|cough|rash|swelling|bruise|wound|burn|'
-    r'fracture|sprain|bleed|vomit|diarrhea|headache|chest|stomach|'
-    r'back|leg|arm|throat|ear|eye|heart|lung|symptom|discomfort)\b',
+    r"\b(feel|feeling|hurt|pain|ache|sick|unwell|dizzy|nausea|tired|"
+    r"fatigue|weak|fever|cough|rash|swelling|bruise|wound|burn|"
+    r"fracture|sprain|bleed|vomit|diarrhea|headache|chest|stomach|"
+    r"back|leg|arm|throat|ear|eye|heart|lung|symptom|discomfort)\b",
     re.IGNORECASE,
 )
 
@@ -74,12 +76,14 @@ def _llm_extract_symptoms_sync(text: str) -> List[str]:
         )
 
         messages = [
-            SystemMessage(content=(
-                "You are a medical symptom extractor. Extract only the symptoms "
-                "mentioned in the patient's message. Return ONLY a JSON object "
-                'with this exact format: {"symptoms": ["symptom1", "symptom2"]}. '
-                'If no symptoms are mentioned, return {"symptoms": []}.'
-            )),
+            SystemMessage(
+                content=(
+                    "You are a medical symptom extractor. Extract only the symptoms "
+                    "mentioned in the patient's message. Return ONLY a JSON object "
+                    'with this exact format: {"symptoms": ["symptom1", "symptom2"]}. '
+                    'If no symptoms are mentioned, return {"symptoms": []}.'
+                )
+            ),
             HumanMessage(content=f'Patient message: "{text}"'),
         ]
 
@@ -98,8 +102,8 @@ def _llm_extract_symptoms_sync(text: str) -> List[str]:
 
         cleaned = raw_text.strip()
         if cleaned.startswith("```"):
-            cleaned = re.sub(r'^```(?:json)?\s*', '', cleaned, flags=re.IGNORECASE)
-            cleaned = re.sub(r'\s*```$', '', cleaned)
+            cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
+            cleaned = re.sub(r"\s*```$", "", cleaned)
 
         data = json.loads(cleaned)
         if isinstance(data, dict) and "symptoms" in data:
@@ -136,16 +140,22 @@ async def extract_symptoms_from_text(text: str) -> List[str]:
     regex_symptoms = _regex_extract_symptoms(text)
     if regex_symptoms:
         elapsed = time.perf_counter() - start_time
-        logger.info("Fast-path symptom extraction: %s (%.3fms)", regex_symptoms, elapsed * 1000)
+        logger.info(
+            "Fast-path symptom extraction: %s (%.3fms)", regex_symptoms, elapsed * 1000
+        )
         return regex_symptoms
 
     if _is_complex_text(text):
-        logger.info("No regex matches, attempting LLM symptom extraction for complex text")
+        logger.info(
+            "No regex matches, attempting LLM symptom extraction for complex text"
+        )
         try:
             llm_symptoms = await _llm_extract_symptoms(text)
             if llm_symptoms:
                 elapsed = time.perf_counter() - start_time
-                logger.info("LLM symptom extraction: %s (%.3fms)", llm_symptoms, elapsed * 1000)
+                logger.info(
+                    "LLM symptom extraction: %s (%.3fms)", llm_symptoms, elapsed * 1000
+                )
                 return llm_symptoms
         except asyncio.TimeoutError:
             logger.warning(

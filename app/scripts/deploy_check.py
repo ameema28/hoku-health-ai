@@ -309,7 +309,9 @@ def check_vector_store() -> CheckResult:
             )
 
         with engine.connect() as conn:
-            count = conn.execute(text("SELECT COUNT(*) FROM vector_store")).scalar() or 0
+            count = (
+                conn.execute(text("SELECT COUNT(*) FROM vector_store")).scalar() or 0
+            )
 
         if count == 0:
             return CheckResult(
@@ -365,7 +367,9 @@ def check_clinical_safety() -> CheckResult:
         problems.append("SYMPTOM intent is cacheable")
 
     if problems:
-        return CheckResult("Clinical safety invariants", Status.FAIL, "; ".join(problems))
+        return CheckResult(
+            "Clinical safety invariants", Status.FAIL, "; ".join(problems)
+        )
 
     return CheckResult(
         "Clinical safety invariants",

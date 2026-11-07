@@ -1,5 +1,6 @@
 # tests/integration/conftest.py
 """Fixtures scoped to integration tests only — cannot leak to unit tests."""
+
 from unittest.mock import patch
 import pytest
 
@@ -11,7 +12,11 @@ def mock_ai_boundaries():
 
     async def _fake_classify_intent(self, message: str):
         lowered = (message or "").lower()
-        if "chest pain" in lowered or "can't breathe" in lowered or "cant breathe" in lowered:
+        if (
+            "chest pain" in lowered
+            or "can't breathe" in lowered
+            or "cant breathe" in lowered
+        ):
             return (IntentEnum.EMERGENCY, 0.99)
         return (IntentEnum.GENERAL, 0.95)
 

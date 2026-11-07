@@ -119,7 +119,8 @@ class LLMFactory:
         resolved_key = api_key if api_key is not None else ai_settings.groq_api_key
         resolved_max_tokens = max_tokens if max_tokens is not None else 150
         resolved_timeout = (
-            request_timeout if request_timeout is not None
+            request_timeout
+            if request_timeout is not None
             else ai_settings.INTENT_CLASSIFICATION_TIMEOUT
         )
 
@@ -175,7 +176,8 @@ class LLMFactory:
             max_tokens if max_tokens is not None else ai_settings.MAX_TOKENS
         )
         resolved_timeout = (
-            request_timeout if request_timeout is not None
+            request_timeout
+            if request_timeout is not None
             else ai_settings.GROQ_TIMEOUT_SECONDS
         )
 
@@ -243,7 +245,9 @@ class LLMFactory:
                 normalized.append(d)
             else:
                 # Skip unparseable messages rather than crash
-                logger.debug("Skipping unparseable message in compress_prompt: %s", type(msg))
+                logger.debug(
+                    "Skipping unparseable message in compress_prompt: %s", type(msg)
+                )
 
         if not normalized:
             return []
@@ -281,8 +285,12 @@ class LLMFactory:
         # Day 8.1: `normalized` is already the parsed form of `history`;
         # the previous expression re-ran _msg_to_dict up to 3x per message
         # purely to build a log line.
-        original_tokens_estimate = sum(len(str(m.get("content", ""))) for m in normalized) // 4
-        compressed_tokens_estimate = sum(len(str(m.get("content", ""))) for m in compressed) // 4
+        original_tokens_estimate = (
+            sum(len(str(m.get("content", ""))) for m in normalized) // 4
+        )
+        compressed_tokens_estimate = (
+            sum(len(str(m.get("content", ""))) for m in compressed) // 4
+        )
 
         logger.info(
             "Prompt compressed: %d -> %d messages, ~%d -> ~%d tokens",

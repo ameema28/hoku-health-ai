@@ -3,7 +3,6 @@ Unit tests for the RateLimit header contract on POST /api/ai/chat.
 """
 
 
-
 def test_rate_limit_headers_present_when_disabled(client, auth_headers, monkeypatch):
     """
     When RATE_LIMIT_ENABLED=false, headers must still be present
@@ -31,6 +30,7 @@ def test_rate_limit_headers_present_when_enabled(client, auth_headers, monkeypat
     monkeypatch.setattr("app.api.v1.endpoints.ai.settings.RATE_LIMIT_ENABLED", True)
 
     from app.core.rate_limit import reset_chat_rate_limiter
+
     reset_chat_rate_limiter()
 
     resp = client.post(
@@ -53,6 +53,7 @@ def test_rate_limit_429_headers(client, auth_headers, monkeypatch):
     monkeypatch.setattr("app.api.v1.endpoints.ai.settings.RATE_LIMIT_ENABLED", True)
 
     from app.core.rate_limit import get_chat_rate_limiter, reset_chat_rate_limiter
+
     reset_chat_rate_limiter()
 
     limiter = get_chat_rate_limiter()

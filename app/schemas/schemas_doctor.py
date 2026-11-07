@@ -13,16 +13,22 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class DoctorBase(BaseModel):
     """Base schema with shared doctor fields."""
+
     model_config = ConfigDict(from_attributes=True)
 
     specialty: str = Field(..., description="Medical specialty name.")
-    experience_years: int = Field(0, ge=0, description="Years of professional experience.")
-    is_available: bool = Field(True, description="Whether the doctor is currently accepting patients.")
+    experience_years: int = Field(
+        0, ge=0, description="Years of professional experience."
+    )
+    is_available: bool = Field(
+        True, description="Whether the doctor is currently accepting patients."
+    )
     license_number: Optional[str] = Field(None, description="Medical license number.")
 
 
 class DoctorRead(DoctorBase):
     """Schema for reading a doctor record (includes DB-generated fields)."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: int = Field(..., description="Doctor primary key.")
@@ -32,6 +38,7 @@ class DoctorRead(DoctorBase):
 
 class DoctorAvailability(BaseModel):
     """Schema for a single weekly availability slot."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: int = Field(..., description="Slot primary key.")
@@ -48,13 +55,20 @@ class DoctorSuggestion(BaseModel):
 
     Contains the mapped specialty, top doctor details, and availability.
     """
+
     model_config = ConfigDict(from_attributes=True)
 
     specialist: str = Field(..., description="Mapped medical specialty.")
-    doctor_name: Optional[str] = Field(None, description="Suggested doctor's display name.")
-    experience: Optional[int] = Field(None, ge=0, description="Doctor's years of experience.")
+    doctor_name: Optional[str] = Field(
+        None, description="Suggested doctor's display name."
+    )
+    experience: Optional[int] = Field(
+        None, ge=0, description="Doctor's years of experience."
+    )
     availability: Optional[List[DoctorAvailability]] = Field(
         None,
         description="Upcoming available slots for the suggested doctor.",
     )
-    doctor_id: Optional[int] = Field(None, description="Suggested doctor's primary key.")
+    doctor_id: Optional[int] = Field(
+        None, description="Suggested doctor's primary key."
+    )

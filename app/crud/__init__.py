@@ -1,4 +1,5 @@
 """Hoku Health Care - CRUD Package."""
+
 from app.crud.crud_chat import (
     create_chat_history,
     get_chat_history_by_user,
@@ -6,6 +7,7 @@ from app.crud.crud_chat import (
     get_recent_chat_history,
     user_exists,
 )
+
 __all__ = [
     "create_chat_history",
     "get_chat_history_by_user",

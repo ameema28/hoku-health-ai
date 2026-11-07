@@ -26,7 +26,10 @@ logger = logging.getLogger(__name__)
 #
 # Definitive diagnosis patterns: language that asserts a medical condition
 _DIAGNOSIS_PATTERNS: List[re.Pattern] = [
-    re.compile(r'\byou\s+have\s+(?:a\s+)?(?:\w+\b(?:itis|osis|emia|oma|pathy|syndrome)|pneumonia|bronchitis|hypertension|diabetes|asthma|infection|cold|flu|migraine|headache|cough|fever)', re.IGNORECASE),
+    re.compile(
+        r"\byou\s+have\s+(?:a\s+)?(?:\w+\b(?:itis|osis|emia|oma|pathy|syndrome)|pneumonia|bronchitis|hypertension|diabetes|asthma|infection|cold|flu|migraine|headache|cough|fever)",
+        re.IGNORECASE,
+    ),
     # ------------------------------------------------------------------
     # REMOVED Day 8.1 — catastrophic false-positive pattern:
     #     r'\byou\s+have\s+(?:a\s+)?[A-Za-z][A-Za-z\s\'-]{0,100}\b'
@@ -56,30 +59,38 @@ _DIAGNOSIS_PATTERNS: List[re.Pattern] = [
     # burn all three strikes. tests/test_chatbot.py::TestSafetyConvergence
     # enforces this.
     # ------------------------------------------------------------------
-    re.compile(r'\byou\s+are\s+suffering\s+from\b', re.IGNORECASE),
-    re.compile(r'\bdiagnosis\s+is\s+', re.IGNORECASE),
-    re.compile(r'\byour\s+condition\s+is\s+', re.IGNORECASE),
-    re.compile(r'\byou\s+have\s+been\s+diagnosed\s+with\b', re.IGNORECASE),
-    re.compile(r'\bthis\s+is\s+(?:a\s+)?(?:\w+\s+)?(?:infection|disease|disorder|condition)\b', re.IGNORECASE),
-    re.compile(r'\byou\s+have\s+(?:developed|contracted)\s+\w+', re.IGNORECASE),
-    re.compile(r'\bit\s+is\s+clear\s+that\s+you\s+have\b', re.IGNORECASE),
-    re.compile(r'\byour\s+symptoms\s+indicate\s+', re.IGNORECASE),
-    re.compile(r'\bthis\s+confirms\s+', re.IGNORECASE),
+    re.compile(r"\byou\s+are\s+suffering\s+from\b", re.IGNORECASE),
+    re.compile(r"\bdiagnosis\s+is\s+", re.IGNORECASE),
+    re.compile(r"\byour\s+condition\s+is\s+", re.IGNORECASE),
+    re.compile(r"\byou\s+have\s+been\s+diagnosed\s+with\b", re.IGNORECASE),
+    re.compile(
+        r"\bthis\s+is\s+(?:a\s+)?(?:\w+\s+)?(?:infection|disease|disorder|condition)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\byou\s+have\s+(?:developed|contracted)\s+\w+", re.IGNORECASE),
+    re.compile(r"\bit\s+is\s+clear\s+that\s+you\s+have\b", re.IGNORECASE),
+    re.compile(r"\byour\s+symptoms\s+indicate\s+", re.IGNORECASE),
+    re.compile(r"\bthis\s+confirms\s+", re.IGNORECASE),
 ]
 
 # Prescription/dosage patterns: language that gives specific medical instructions
 _PRESCRIPTION_PATTERNS: List[re.Pattern] = [
-    re.compile(r'\btake\s+\d+\s*(?:mg|g|mcg|ml|units?)\b', re.IGNORECASE),
-    re.compile(r'\bprescribe\s+\w+', re.IGNORECASE),
-    re.compile(r'\bdosage\s+(?:of\s+)?\d+(?:\s*(?:mg|g|mcg|ml|units?))?\b', re.IGNORECASE),
-    re.compile(r'\btake\s+(?:[A-Za-z\'-]+\s+){1,4}(?:twice|three\s+times|once|daily|every\s+\d+\s+hours?)\b', re.IGNORECASE),
-    re.compile(r'\bstart\s+taking\s+\w+', re.IGNORECASE),
-    re.compile(r'\bstop\s+taking\s+\w+', re.IGNORECASE),
-    re.compile(r'\bincrease\s+(?:your\s+)?(?:dose|dosage|medication)\b', re.IGNORECASE),
-    re.compile(r'\bdecrease\s+(?:your\s+)?(?:dose|dosage|medication)\b', re.IGNORECASE),
-    re.compile(r'\bapply\s+\d+\s*(?:mg|g|ml|drops?)\s+(?:of\s+)?\w+\b', re.IGNORECASE),
-    re.compile(r'\binject\s+\d+\s*(?:mg|g|ml|units?)\b', re.IGNORECASE),
-    re.compile(r'\buse\s+\d+\s*(?:mg|g|ml|drops?|puffs?)\b', re.IGNORECASE),
+    re.compile(r"\btake\s+\d+\s*(?:mg|g|mcg|ml|units?)\b", re.IGNORECASE),
+    re.compile(r"\bprescribe\s+\w+", re.IGNORECASE),
+    re.compile(
+        r"\bdosage\s+(?:of\s+)?\d+(?:\s*(?:mg|g|mcg|ml|units?))?\b", re.IGNORECASE
+    ),
+    re.compile(
+        r"\btake\s+(?:[A-Za-z\'-]+\s+){1,4}(?:twice|three\s+times|once|daily|every\s+\d+\s+hours?)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\bstart\s+taking\s+\w+", re.IGNORECASE),
+    re.compile(r"\bstop\s+taking\s+\w+", re.IGNORECASE),
+    re.compile(r"\bincrease\s+(?:your\s+)?(?:dose|dosage|medication)\b", re.IGNORECASE),
+    re.compile(r"\bdecrease\s+(?:your\s+)?(?:dose|dosage|medication)\b", re.IGNORECASE),
+    re.compile(r"\bapply\s+\d+\s*(?:mg|g|ml|drops?)\s+(?:of\s+)?\w+\b", re.IGNORECASE),
+    re.compile(r"\binject\s+\d+\s*(?:mg|g|ml|units?)\b", re.IGNORECASE),
+    re.compile(r"\buse\s+\d+\s*(?:mg|g|ml|drops?|puffs?)\b", re.IGNORECASE),
 ]
 
 # Disclaimer pattern: check for the mandatory safety disclaimer
@@ -207,19 +218,40 @@ class SafetyGuardrails:
 
         # Replace diagnosis language with safe alternatives
         diagnosis_replacements = [
-            (r'\byou\s+have\s+(?:a\s+)?(\w+(?:itis|osis|emia|oma|pathy|syndrome)|pneumonia|bronchitis|hypertension|diabetes|asthma|infection|cold|flu|migraine)\b',
-             r'You mentioned symptoms that could be related to \1, but only a doctor can confirm this.'),
-            (r'\byou\s+are\s+suffering\s+from\b', 'You described symptoms that may relate to'),
-            (r'\bdiagnosis\s+is\s+', 'a proper diagnosis can only be made by a doctor after examining you — possible considerations include '),
-            (r'\byour\s+condition\s+is\s+', 'your symptoms could be related to several conditions, and '),
-            (r'\byou\s+have\s+been\s+diagnosed\s+with\b', 'a diagnosis of'),
-            (r'\bthis\s+is\s+(?:a\s+)?(\w+\s+(?:infection|disease|disorder|condition))\b',
-             r'this could be related to \1, but'),
-            (r'\byou\s+have\s+(?:developed|contracted)\s+(\w+)\b',
-             r'you mentioned symptoms that might suggest \1, but'),
-            (r'\bit\s+is\s+clear\s+that\s+you\s+have\b', 'your symptoms suggest you may have'),
-            (r'\byour\s+symptoms\s+indicate\s+', 'your symptoms could be associated with'),
-            (r'\bthis\s+confirms\s+', 'this suggests the possibility of'),
+            (
+                r"\byou\s+have\s+(?:a\s+)?(\w+(?:itis|osis|emia|oma|pathy|syndrome)|pneumonia|bronchitis|hypertension|diabetes|asthma|infection|cold|flu|migraine)\b",
+                r"You mentioned symptoms that could be related to \1, but only a doctor can confirm this.",
+            ),
+            (
+                r"\byou\s+are\s+suffering\s+from\b",
+                "You described symptoms that may relate to",
+            ),
+            (
+                r"\bdiagnosis\s+is\s+",
+                "a proper diagnosis can only be made by a doctor after examining you — possible considerations include ",
+            ),
+            (
+                r"\byour\s+condition\s+is\s+",
+                "your symptoms could be related to several conditions, and ",
+            ),
+            (r"\byou\s+have\s+been\s+diagnosed\s+with\b", "a diagnosis of"),
+            (
+                r"\bthis\s+is\s+(?:a\s+)?(\w+\s+(?:infection|disease|disorder|condition))\b",
+                r"this could be related to \1, but",
+            ),
+            (
+                r"\byou\s+have\s+(?:developed|contracted)\s+(\w+)\b",
+                r"you mentioned symptoms that might suggest \1, but",
+            ),
+            (
+                r"\bit\s+is\s+clear\s+that\s+you\s+have\b",
+                "your symptoms suggest you may have",
+            ),
+            (
+                r"\byour\s+symptoms\s+indicate\s+",
+                "your symptoms could be associated with",
+            ),
+            (r"\bthis\s+confirms\s+", "this suggests the possibility of"),
         ]
 
         for pattern, replacement in diagnosis_replacements:
@@ -227,16 +259,26 @@ class SafetyGuardrails:
 
         # Replace prescription language with safe alternatives
         prescription_replacements = [
-            (r'\btake\s+\d+\s*(?:mg|g|mcg|ml|units?)\s+(?:of\s+)?(\w+)\b',
-             r'Please consult your doctor about the appropriate dosage of \1.'),
-            (r'\bprescribe\s+(\w+)\b',
-             r'Your doctor can determine if \1 is appropriate for you.'),
-            (r'\bdosage\s+(?:of\s+)?\d+\b',
-             'Your doctor will determine the correct dosage for you.'),
-            (r'\btake\s+(?:\w+\s+)?(\w+)\s+(?:twice|three\s+times|once|daily|every\s+\d+\s+hours?)\b',
-             r'Please follow your doctor\'s instructions for taking \1.'),
-            (r'\bstart\s+taking\s+(\w+)\b',
-             r'Discuss starting \1 with your doctor first.'),
+            (
+                r"\btake\s+\d+\s*(?:mg|g|mcg|ml|units?)\s+(?:of\s+)?(\w+)\b",
+                r"Please consult your doctor about the appropriate dosage of \1.",
+            ),
+            (
+                r"\bprescribe\s+(\w+)\b",
+                r"Your doctor can determine if \1 is appropriate for you.",
+            ),
+            (
+                r"\bdosage\s+(?:of\s+)?\d+\b",
+                "Your doctor will determine the correct dosage for you.",
+            ),
+            (
+                r"\btake\s+(?:\w+\s+)?(\w+)\s+(?:twice|three\s+times|once|daily|every\s+\d+\s+hours?)\b",
+                r"Please follow your doctor\'s instructions for taking \1.",
+            ),
+            (
+                r"\bstart\s+taking\s+(\w+)\b",
+                r"Discuss starting \1 with your doctor first.",
+            ),
             # Day 8.1: the old replacement was
             #     r'Never stop taking \1 without consulting your doctor.'
             # which REPRODUCES the trigger phrase "stop taking <drug>". The
@@ -244,18 +286,30 @@ class SafetyGuardrails:
             # loop could never converge and any reply mentioning stopping a
             # medication was replaced by the safety fallback. The wording
             # below carries the same clinical meaning without the trigger.
-            (r'\bstop\s+taking\s+(\w+)\b',
-             r'please do not discontinue \1 on your own — speak with your doctor first'),
-            (r'\bincrease\s+(?:your\s+)?(?:dose|dosage|medication)\b',
-             'Any changes to your medication should be approved by your doctor.'),
-            (r'\bdecrease\s+(?:your\s+)?(?:dose|dosage|medication)\b',
-             'Any changes to your medication should be approved by your doctor.'),
-            (r'\bapply\s+\d+\s*(?:mg|g|ml|drops?)\s+(?:of\s+)?(\w+)\b',
-             r'Your doctor can advise on how to apply \1.'),
-            (r'\binject\s+\d+\s*(?:mg|g|ml|units?)\b',
-             'Injection administration should only be done under medical supervision.'),
-            (r'\buse\s+\d+\s*(?:mg|g|ml|drops?|puffs?)\b',
-             'Please confirm the correct usage with your doctor or pharmacist.'),
+            (
+                r"\bstop\s+taking\s+(\w+)\b",
+                r"please do not discontinue \1 on your own — speak with your doctor first",
+            ),
+            (
+                r"\bincrease\s+(?:your\s+)?(?:dose|dosage|medication)\b",
+                "Any changes to your medication should be approved by your doctor.",
+            ),
+            (
+                r"\bdecrease\s+(?:your\s+)?(?:dose|dosage|medication)\b",
+                "Any changes to your medication should be approved by your doctor.",
+            ),
+            (
+                r"\bapply\s+\d+\s*(?:mg|g|ml|drops?)\s+(?:of\s+)?(\w+)\b",
+                r"Your doctor can advise on how to apply \1.",
+            ),
+            (
+                r"\binject\s+\d+\s*(?:mg|g|ml|units?)\b",
+                "Injection administration should only be done under medical supervision.",
+            ),
+            (
+                r"\buse\s+\d+\s*(?:mg|g|ml|drops?|puffs?)\b",
+                "Please confirm the correct usage with your doctor or pharmacist.",
+            ),
         ]
 
         for pattern, replacement in prescription_replacements:
@@ -264,8 +318,11 @@ class SafetyGuardrails:
         # Ensure disclaimer is present
         sanitized = cls.add_disclaimer(sanitized)
 
-        logger.info("Response sanitized: %d diagnosis + %d prescription patterns processed",
-                    len(diagnosis_replacements), len(prescription_replacements))
+        logger.info(
+            "Response sanitized: %d diagnosis + %d prescription patterns processed",
+            len(diagnosis_replacements),
+            len(prescription_replacements),
+        )
         return sanitized
 
     @classmethod
@@ -320,9 +377,15 @@ class SafetyGuardrails:
             )
 
             # Determine severity based on violation types
-            if cls.VIOLATION_DIAGNOSIS in violations or cls.VIOLATION_PRESCRIPTION in violations:
+            if (
+                cls.VIOLATION_DIAGNOSIS in violations
+                or cls.VIOLATION_PRESCRIPTION in violations
+            ):
                 final_severity = "high"
-            elif cls.VIOLATION_MISSING_DISCLAIMER in violations and final_severity == "low":
+            elif (
+                cls.VIOLATION_MISSING_DISCLAIMER in violations
+                and final_severity == "low"
+            ):
                 final_severity = "moderate"
 
             # Log the violation if DB session available
@@ -333,7 +396,9 @@ class SafetyGuardrails:
                         user_id=user_id,
                         message="[post-llm safety check]",
                         ai_response=current_text[:1000],
-                        violation_type=violations[0] if violations else cls.VIOLATION_SANITIZED,
+                        violation_type=violations[0]
+                        if violations
+                        else cls.VIOLATION_SANITIZED,
                         severity=final_severity,
                     )
                 except Exception as log_exc:
@@ -349,9 +414,7 @@ class SafetyGuardrails:
             max_retries,
         )
 
-        fallback = (
-            f"{ai_settings.SAFETY_FALLBACK_RESPONSE} {SAFETY_DISCLAIMER}"
-        )
+        fallback = f"{ai_settings.SAFETY_FALLBACK_RESPONSE} {SAFETY_DISCLAIMER}"
 
         # Log the 3-strike fallback as a high-severity event
         if db is not None:

@@ -136,9 +136,9 @@ def extract_json_from_response(text: str) -> Dict:
     # Strip markdown fences
     if cleaned.startswith("```"):
         # Remove opening fence and optional language tag
-        cleaned = re.sub(r'^```(?:json)?\s*', '', cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
         # Remove closing fence
-        cleaned = re.sub(r'\s*```$', '', cleaned)
+        cleaned = re.sub(r"\s*```$", "", cleaned)
 
     try:
         parsed = json.loads(cleaned)

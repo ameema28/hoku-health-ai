@@ -63,9 +63,7 @@ def create_chat_history(
             user_id,
             exc,
         )
-        raise DatabaseOperationException(
-            "Failed to persist chat history"
-        ) from exc
+        raise DatabaseOperationException("Failed to persist chat history") from exc
 
 
 def get_chat_history_by_user(
@@ -116,9 +114,7 @@ def get_chat_history_by_user(
             user_id,
             exc,
         )
-        raise DatabaseOperationException(
-            "Failed to retrieve chat history"
-        ) from exc
+        raise DatabaseOperationException("Failed to retrieve chat history") from exc
 
 
 def get_chat_history_count(db: Session, user_id: int) -> int:
@@ -136,9 +132,7 @@ def get_chat_history_count(db: Session, user_id: int) -> int:
         DatabaseOperationException: If the count query fails.
     """
     try:
-        stmt = select(func.count(ChatHistory.id)).where(
-            ChatHistory.user_id == user_id
-        )
+        stmt = select(func.count(ChatHistory.id)).where(ChatHistory.user_id == user_id)
         count = db.execute(stmt).scalar_one()
         logger.info(
             "Chat history count for user_id=%s: %d",
@@ -153,9 +147,7 @@ def get_chat_history_count(db: Session, user_id: int) -> int:
             user_id,
             exc,
         )
-        raise DatabaseOperationException(
-            "Failed to count chat history"
-        ) from exc
+        raise DatabaseOperationException("Failed to count chat history") from exc
 
 
 def get_recent_chat_history(

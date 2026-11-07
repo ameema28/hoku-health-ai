@@ -109,7 +109,9 @@ async def process_chat(
         #   - Intent-aware prompt augmentation
         #   - Main LLM response generation
         # ------------------------------------------------------------------
-        response = await generate_response(message, user_id, db, raw_message=raw_message)
+        response = await generate_response(
+            message, user_id, db, raw_message=raw_message
+        )
 
         # Extract intent from response for persistence
         intent = response.get("intent", "general")

@@ -27,10 +27,10 @@ from app.core.config import settings
 # ------------------------------------------------------------------
 
 _pool_kwargs = {
-    "pool_pre_ping": True,      # Health-check connections before use
-    "pool_size": 10,            # Baseline persistent connections
-    "max_overflow": 20,         # Burst capacity under load
-    "pool_recycle": 3600,       # Recycle connections after 1 hour
+    "pool_pre_ping": True,  # Health-check connections before use
+    "pool_size": 10,  # Baseline persistent connections
+    "max_overflow": 20,  # Burst capacity under load
+    "pool_recycle": 3600,  # Recycle connections after 1 hour
     "echo": settings.DEBUG,
 }
 

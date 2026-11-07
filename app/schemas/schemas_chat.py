@@ -27,6 +27,7 @@ class IntentEnum(str):
     Not a formal Enum to maintain JSON serialization simplicity,
     but provides documentation value.
     """
+
     SYMPTOM = "symptom"
     BOOKING = "booking"
     MEDICATION = "medication"
@@ -42,6 +43,7 @@ class ChatMessageRequest(BaseModel):
         message: The user's health-related question or symptom description.
         userId: The authenticated user's database ID.
     """
+
     model_config = ConfigDict(from_attributes=True)
 
     message: str = Field(
@@ -80,6 +82,7 @@ class ChatMessageResponse(BaseModel):
         doctor_suggestion: Suggested doctor with specialty, experience,
             and availability info (Day 6).
     """
+
     model_config = ConfigDict(from_attributes=True)
 
     reply: str = Field(..., description="AI-generated conversational response.")
@@ -118,6 +121,7 @@ class ChatHistoryCreate(BaseModel):
     Internal schema for inserting a new chat history record.
     Not exposed directly via API; used by the service and CRUD layers.
     """
+
     model_config = ConfigDict(from_attributes=True)
 
     user_id: int
@@ -138,6 +142,7 @@ class ChatHistoryRead(BaseModel):
         intent: Detected intent.
         created_at: ISO timestamp of the conversation turn.
     """
+
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -157,6 +162,7 @@ class ChatHistoryItem(BaseModel):
         content: Message text.
         timestamp: When the message was recorded.
     """
+
     model_config = ConfigDict(from_attributes=True)
 
     role: Literal["human", "ai"] = Field(
@@ -175,6 +181,7 @@ class ChatSessionResponse(BaseModel):
         user_id: The user's database ID.
         messages: Chronologically ordered list of chat messages.
     """
+
     model_config = ConfigDict(from_attributes=True)
 
     user_id: int = Field(..., description="User ID.")

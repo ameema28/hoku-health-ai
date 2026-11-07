@@ -8,6 +8,7 @@ FastAPI server. Uses SQLite for portability.
 Usage:
     python test_crud.py
 """
+
 import logging
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker

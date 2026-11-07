@@ -29,6 +29,7 @@ from app.utils.constants import SAFETY_DISCLAIMER
 # Fixtures
 # ------------------------------------------------------------------
 
+
 @pytest.fixture
 def mock_settings():
     """Mock AI settings for safety tests."""
@@ -63,37 +64,47 @@ def metrics():
 # EmergencyDetector Tests — Tier 1 Regex
 # ------------------------------------------------------------------
 
-class TestEmergencyDetectorTier1:
 
+class TestEmergencyDetectorTier1:
     def test_detect_high_urgency_chest_pain(self, detector):
         """Tier 1: High urgency detection of chest pain."""
-        is_emergency, urgency, reason = detector.detect_emergency("I have severe chest pain")
+        is_emergency, urgency, reason = detector.detect_emergency(
+            "I have severe chest pain"
+        )
         assert is_emergency is True
         assert urgency == "high"
         assert "chest pain" in reason.lower()
 
     def test_detect_high_urgency_cant_breathe(self, detector):
         """Tier 1: High urgency detection of breathing difficulty."""
-        is_emergency, urgency, reason = detector.detect_emergency("I can't breathe properly")
+        is_emergency, urgency, reason = detector.detect_emergency(
+            "I can't breathe properly"
+        )
         assert is_emergency is True
         assert urgency == "high"
         assert "breathe" in reason.lower()
 
     def test_detect_high_urgency_unconscious(self, detector):
         """Tier 1: High urgency detection of unconsciousness."""
-        is_emergency, urgency, reason = detector.detect_emergency("My father is unconscious")
+        is_emergency, urgency, reason = detector.detect_emergency(
+            "My father is unconscious"
+        )
         assert is_emergency is True
         assert urgency == "high"
 
     def test_detect_high_urgency_heart_attack(self, detector):
         """Tier 1: High urgency detection of heart attack."""
-        is_emergency, urgency, reason = detector.detect_emergency("I think I'm having a heart attack")
+        is_emergency, urgency, reason = detector.detect_emergency(
+            "I think I'm having a heart attack"
+        )
         assert is_emergency is True
         assert urgency == "high"
 
     def test_detect_high_urgency_stroke(self, detector):
         """Tier 1: High urgency detection of stroke."""
-        is_emergency, urgency, reason = detector.detect_emergency("Signs of a stroke, slurred speech")
+        is_emergency, urgency, reason = detector.detect_emergency(
+            "Signs of a stroke, slurred speech"
+        )
         assert is_emergency is True
         assert urgency == "high"
 
@@ -105,45 +116,59 @@ class TestEmergencyDetectorTier1:
 
     def test_detect_high_urgency_seizure(self, detector):
         """Tier 1: High urgency detection of seizure."""
-        is_emergency, urgency, reason = detector.detect_emergency("She is having a seizure")
+        is_emergency, urgency, reason = detector.detect_emergency(
+            "She is having a seizure"
+        )
         assert is_emergency is True
         assert urgency == "high"
 
     def test_detect_high_urgency_severe_bleeding(self, detector):
         """Tier 1: High urgency detection of severe bleeding."""
-        is_emergency, urgency, reason = detector.detect_emergency("Severe bleeding from my leg")
+        is_emergency, urgency, reason = detector.detect_emergency(
+            "Severe bleeding from my leg"
+        )
         assert is_emergency is True
         assert urgency == "high"
 
     def test_detect_high_urgency_severe_allergic_reaction(self, detector):
         """Tier 1: High urgency detection of severe allergic reaction."""
-        is_emergency, urgency, reason = detector.detect_emergency("Severe allergic reaction, swelling")
+        is_emergency, urgency, reason = detector.detect_emergency(
+            "Severe allergic reaction, swelling"
+        )
         assert is_emergency is True
         assert urgency == "high"
 
     def test_detect_moderate_urgency_high_fever(self, detector):
         """Tier 1: Moderate urgency detection of high fever."""
-        is_emergency, urgency, reason = detector.detect_emergency("I have a high fever of 104")
+        is_emergency, urgency, reason = detector.detect_emergency(
+            "I have a high fever of 104"
+        )
         assert is_emergency is True
         assert urgency == "moderate"
         assert "fever" in reason.lower()
 
     def test_detect_moderate_urgency_dehydration(self, detector):
         """Tier 1: Moderate urgency detection of dehydration."""
-        is_emergency, urgency, reason = detector.detect_emergency("Signs of dehydration, very thirsty")
+        is_emergency, urgency, reason = detector.detect_emergency(
+            "Signs of dehydration, very thirsty"
+        )
         assert is_emergency is True
         assert urgency == "moderate"
 
     def test_no_emergency_normal_message(self, detector):
         """Tier 1: Normal messages should not trigger emergency."""
-        is_emergency, urgency, reason = detector.detect_emergency("I have a mild headache")
+        is_emergency, urgency, reason = detector.detect_emergency(
+            "I have a mild headache"
+        )
         assert is_emergency is False
         assert urgency == "none"
         assert reason == ""
 
     def test_no_emergency_booking_query(self, detector):
         """Tier 1: Booking queries should not trigger emergency."""
-        is_emergency, urgency, reason = detector.detect_emergency("How do I book an appointment?")
+        is_emergency, urgency, reason = detector.detect_emergency(
+            "How do I book an appointment?"
+        )
         assert is_emergency is False
         assert urgency == "none"
 
@@ -188,18 +213,26 @@ class TestEmergencyDetectorTier1:
 # EmergencyDetector Tests — Tier 2 LLM Fallback
 # ------------------------------------------------------------------
 
-class TestEmergencyDetectorTier2:
 
+class TestEmergencyDetectorTier2:
     @pytest.mark.asyncio
     async def test_tier2_ambiguous_edge_case(self, detector):
         """Tier 2: LLM fallback for ambiguous edge cases."""
         # Mock the LLM chain to return emergency for ambiguous text
         mock_chain = MagicMock()
         mock_chain.invoke.return_value = {
-            "text": json.dumps({"is_emergency": True, "urgency": "high", "reason": "ambiguous chest discomfort"})
+            "text": json.dumps(
+                {
+                    "is_emergency": True,
+                    "urgency": "high",
+                    "reason": "ambiguous chest discomfort",
+                }
+            )
         }
 
-        with patch.object(EmergencyDetector, "_build_tier2_chain", return_value=mock_chain):
+        with patch.object(
+            EmergencyDetector, "_build_tier2_chain", return_value=mock_chain
+        ):
             is_emergency, urgency, reason = await detector.detect_emergency_async(
                 "My chest feels a bit funny and I'm worried"
             )
@@ -213,7 +246,9 @@ class TestEmergencyDetectorTier2:
         slow_chain = MagicMock()
         slow_chain.invoke = lambda **kwargs: asyncio.sleep(10) or {}
 
-        with patch.object(EmergencyDetector, "_build_tier2_chain", return_value=slow_chain):
+        with patch.object(
+            EmergencyDetector, "_build_tier2_chain", return_value=slow_chain
+        ):
             is_emergency, urgency, reason = await detector.detect_emergency_async(
                 "I have chest pain"
             )
@@ -236,8 +271,8 @@ class TestEmergencyDetectorTier2:
 # EmergencyDetector Tests — Urgency Responses
 # ------------------------------------------------------------------
 
-class TestEmergencyUrgencyResponses:
 
+class TestEmergencyUrgencyResponses:
     def test_high_urgency_response_structure(self, detector):
         """High urgency response must contain all required fields."""
         response = detector.get_urgency_response("high")
@@ -283,8 +318,8 @@ class TestEmergencyUrgencyResponses:
 # SafetyGuardrails Tests — Diagnosis Detection
 # ------------------------------------------------------------------
 
-class TestSafetyGuardrailsDiagnosis:
 
+class TestSafetyGuardrailsDiagnosis:
     def test_detect_diagnosis_you_have(self):
         """Detect 'you have [condition]' pattern."""
         text = "You have pneumonia and should rest."
@@ -332,8 +367,8 @@ class TestSafetyGuardrailsDiagnosis:
 # SafetyGuardrails Tests — Prescription Detection
 # ------------------------------------------------------------------
 
-class TestSafetyGuardrailsPrescription:
 
+class TestSafetyGuardrailsPrescription:
     def test_detect_prescription_take_mg(self):
         """Detect 'take [X]mg' pattern."""
         text = "Take 500mg of paracetamol every 6 hours."
@@ -388,8 +423,8 @@ class TestSafetyGuardrailsPrescription:
 # SafetyGuardrails Tests — Disclaimer Enforcement
 # ------------------------------------------------------------------
 
-class TestSafetyGuardrailsDisclaimer:
 
+class TestSafetyGuardrailsDisclaimer:
     def test_missing_disclaimer_detected(self):
         """Response without disclaimer should be flagged."""
         text = "You should rest and drink water."
@@ -423,14 +458,17 @@ class TestSafetyGuardrailsDisclaimer:
 # SafetyGuardrails Tests — Sanitization
 # ------------------------------------------------------------------
 
-class TestSafetyGuardrailsSanitization:
 
+class TestSafetyGuardrailsSanitization:
     def test_sanitize_diagnosis_language(self):
         """Sanitize should replace diagnosis language."""
         text = "You have pneumonia. Take 500mg of antibiotics."
         sanitized = SafetyGuardrails.sanitize_response(text)
         assert "You have pneumonia" not in sanitized
-        assert "only a doctor can confirm" in sanitized or "possible considerations" in sanitized
+        assert (
+            "only a doctor can confirm" in sanitized
+            or "possible considerations" in sanitized
+        )
         assert SAFETY_DISCLAIMER in sanitized
 
     def test_sanitize_prescription_language(self):
@@ -447,7 +485,10 @@ class TestSafetyGuardrailsSanitization:
         sanitized = SafetyGuardrails.sanitize_response(text)
         assert SAFETY_DISCLAIMER in sanitized
         # Should not contain the original violations
-        assert "You have diabetes" not in sanitized or "only a doctor can confirm" in sanitized
+        assert (
+            "You have diabetes" not in sanitized
+            or "only a doctor can confirm" in sanitized
+        )
 
     def test_sanitize_empty_input(self):
         """Sanitize empty input should return safe fallback."""
@@ -466,8 +507,8 @@ class TestSafetyGuardrailsSanitization:
 # SafetyGuardrails Tests — 3-Strike Retry
 # ------------------------------------------------------------------
 
-class TestSafetyGuardrails3Strike:
 
+class TestSafetyGuardrails3Strike:
     def test_3_strike_passes_on_first_attempt(self):
         """Safe response should pass on first attempt."""
         text = f"Please rest and stay hydrated. {SAFETY_DISCLAIMER}"
@@ -497,8 +538,14 @@ class TestSafetyGuardrails3Strike:
         # by using a pattern not covered by sanitization
         text = "DIAGNOSIS_IS_HARDCODED_UNSANITIZABLE"
         # Mock validate_response to always return unsafe
-        with patch.object(SafetyGuardrails, "validate_response", return_value=(False, ["diagnosis_attempt"])):
-            with patch.object(SafetyGuardrails, "sanitize_response", return_value="STILL_UNSAFE"):
+        with patch.object(
+            SafetyGuardrails,
+            "validate_response",
+            return_value=(False, ["diagnosis_attempt"]),
+        ):
+            with patch.object(
+                SafetyGuardrails, "sanitize_response", return_value="STILL_UNSAFE"
+            ):
                 result, violations, severity = SafetyGuardrails.apply_3_strike_safety(
                     text, user_id=1, db=None
                 )
@@ -521,8 +568,8 @@ class TestSafetyGuardrails3Strike:
 # Monitoring Metrics Tests
 # ------------------------------------------------------------------
 
-class TestMonitoringMetrics:
 
+class TestMonitoringMetrics:
     def test_singleton_instance(self):
         """Metrics should be a singleton."""
         m1 = get_metrics()
@@ -617,12 +664,14 @@ class TestMonitoringMetrics:
 # Integration Tests — End-to-End Safety Flow
 # ------------------------------------------------------------------
 
-class TestSafetyIntegration:
 
+class TestSafetyIntegration:
     @pytest.mark.asyncio
     async def test_emergency_bypasses_all_safety_checks(self, detector):
         """Emergency detection should bypass LLM and safety checks entirely."""
-        is_emergency, urgency, reason = detector.detect_emergency("I can't breathe and my chest hurts")
+        is_emergency, urgency, reason = detector.detect_emergency(
+            "I can't breathe and my chest hurts"
+        )
         assert is_emergency is True
         assert urgency == "high"
 

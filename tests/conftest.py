@@ -30,39 +30,44 @@ def db():
 @pytest.fixture(scope="function")
 def client(db):
     """Create a TestClient with overridden DB dependency."""
+
     def override_get_db():
         try:
             yield db
         finally:
             db.close()
-    
+
     app.dependency_overrides[get_db] = override_get_db
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
 
+
 @pytest.fixture
 def mock_emergency_detector():
     """Mock emergency detector for controlled testing."""
     from unittest.mock import patch
-    
+
     def mock_detect(message):
         if message and "emergency" in message.lower():
             return True
         return False
-    
+
     with patch("app.ai.chatbot.detect_emergency", side_effect=mock_detect):
         yield
+
 
 @pytest.fixture(autouse=True)
 def _isolate_chatbot_cache():
     """Prevent ResponseCache singleton from leaking between tests."""
     from unittest.mock import patch
+
     with patch("app.ai.chatbot.ResponseCache") as MockCache:
         instance = MockCache.return_value
         instance.get.return_value = None
         instance.set.return_value = None
         yield
+
 
 @pytest.fixture
 def auth_headers(client):
@@ -71,5 +76,9 @@ def auth_headers(client):
     Overrides get_current_user so any Bearer token works in tests.
     """
     from app.core.dependencies import get_current_user
-    app.dependency_overrides[get_current_user] = lambda: {"id": 1, "email": "test@hoku.health"}
-    return {"Authorization": "Bearer test-token"}       
+
+    app.dependency_overrides[get_current_user] = lambda: {
+        "id": 1,
+        "email": "test@hoku.health",
+    }
+    return {"Authorization": "Bearer test-token"}

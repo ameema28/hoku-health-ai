@@ -16,17 +16,27 @@ class TestSecurityToken:
     def test_valid_token_decodes(self) -> None:
         """A correctly signed token yields the expected subject."""
         token = jwt.encode(
-            {"sub": "1", "id": 1, "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=1)},
+            {
+                "sub": "1",
+                "id": 1,
+                "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=1),
+            },
             settings.SECRET_KEY,
             algorithm=settings.ALGORITHM,
         )
-        decoded = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        decoded = jwt.decode(
+            token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
+        )
         assert decoded["id"] == 1
 
     def test_expired_token_rejected(self) -> None:
         """An expired token raises during decode."""
         token = jwt.encode(
-            {"sub": "1", "id": 1, "exp": datetime.datetime.utcnow() - datetime.timedelta(hours=1)},
+            {
+                "sub": "1",
+                "id": 1,
+                "exp": datetime.datetime.utcnow() - datetime.timedelta(hours=1),
+            },
             settings.SECRET_KEY,
             algorithm=settings.ALGORITHM,
         )
@@ -36,7 +46,11 @@ class TestSecurityToken:
     def test_wrong_signature_rejected(self) -> None:
         """A token signed with the wrong key is rejected."""
         token = jwt.encode(
-            {"sub": "1", "id": 1, "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=1)},
+            {
+                "sub": "1",
+                "id": 1,
+                "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=1),
+            },
             "wrong-secret-key",
             algorithm=settings.ALGORITHM,
         )

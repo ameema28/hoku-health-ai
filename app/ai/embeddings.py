@@ -61,7 +61,9 @@ class EmbeddingManager:
                 self._model = SentenceTransformer(self.model_name)
                 logger.info("Embedding model '%s' loaded", self.model_name)
             except Exception as exc:
-                logger.warning("Failed to load embedding model '%s': %s", self.model_name, exc)
+                logger.warning(
+                    "Failed to load embedding model '%s': %s", self.model_name, exc
+                )
                 self._model = None
         return self._model
 
@@ -76,7 +78,9 @@ class EmbeddingManager:
             return [0.0] * self.dimension
 
         if self.model is None:
-            logger.warning("Embedding model unavailable, returning zero-vector fallback")
+            logger.warning(
+                "Embedding model unavailable, returning zero-vector fallback"
+            )
             return [0.0] * self.dimension
 
         try:
@@ -97,7 +101,9 @@ class EmbeddingManager:
             return []
 
         if self.model is None:
-            logger.warning("Embedding model unavailable, returning zero-vector fallbacks")
+            logger.warning(
+                "Embedding model unavailable, returning zero-vector fallbacks"
+            )
             return [[0.0] * self.dimension for _ in texts]
 
         try:

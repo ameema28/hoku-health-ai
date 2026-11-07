@@ -46,13 +46,19 @@ class TestChatbotFallbackPaths:
             type(bot), "main_llm", new_callable=lambda: property(lambda self: None)
         ):
             MockMem.return_value.load_memory.return_value = mock_memory
-            result = await bot.get_response("Tell me about wellness", user_id=1, db=mock_db)
+            result = await bot.get_response(
+                "Tell me about wellness", user_id=1, db=mock_db
+            )
 
         assert "reply" in result
         assert SAFETY_DISCLAIMER in result["reply"]
         assert result["shouldSeeDoctor"] is True
         assert result["intent"] in (
-            "general", "symptom", "booking", "medication", "emergency",
+            "general",
+            "symptom",
+            "booking",
+            "medication",
+            "emergency",
         )
 
     @pytest.mark.asyncio
@@ -66,9 +72,7 @@ class TestChatbotFallbackPaths:
 
         with patch("app.ai.chatbot.HokuConversationMemory") as MockMem, patch(
             "app.ai.chatbot.LLMChain", return_value=chain
-        ), patch(
-            "app.ai.chatbot.generate_with_timeout", return_value=None
-        ):
+        ), patch("app.ai.chatbot.generate_with_timeout", return_value=None):
             MockMem.return_value.load_memory.return_value = mock_memory
             result = await bot.get_response("General question", user_id=1, db=mock_db)
 
@@ -82,7 +86,9 @@ class TestChatbotFallbackPaths:
         """Non-JSON LLM text is parsed defensively and gets the disclaimer."""
         bot = HokuChatbot()
         chain = MagicMock()
-        chain.invoke = MagicMock(return_value={"text": "just some plain prose, no json here"})
+        chain.invoke = MagicMock(
+            return_value={"text": "just some plain prose, no json here"}
+        )
 
         with patch("app.ai.chatbot.HokuConversationMemory") as MockMem, patch(
             "app.ai.chatbot.LLMChain", return_value=chain
@@ -99,12 +105,14 @@ class TestParseAndFallbackHelpers:
     def test_parse_llm_output_direct_json(self) -> None:
         """A clean JSON payload is parsed into the expected keys."""
         bot = HokuChatbot()
-        payload = json.dumps({
-            "reply": "Rest well.",
-            "suggestedSpecialist": "General Physician",
-            "severity": "mild",
-            "shouldSeeDoctor": False,
-        })
+        payload = json.dumps(
+            {
+                "reply": "Rest well.",
+                "suggestedSpecialist": "General Physician",
+                "severity": "mild",
+                "shouldSeeDoctor": False,
+            }
+        )
         parsed = bot._parse_llm_output(payload)
         assert parsed["reply"] == "Rest well."
         assert parsed["suggestedSpecialist"] == "General Physician"
