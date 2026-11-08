@@ -1,0 +1,32 @@
+{"query": "Which kinds of care can Hoku send to my house?", "expected": "What home healthcare services does Hoku Health Care offer?"}
+{"query": "Is there a nurse who can visit my mother at home in Lahore?", "expected": "Do you provide home nursing care in Lahore?"}
+{"query": "Can I use Hoku if I live in Abu Dhabi or Dubai?", "expected": "Is Hoku Health Care available in Dubai?"}
+{"query": "Are your services available for patients in London?", "expected": "Does Hoku Health Care operate in the UK?"}
+{"query": "What are the steps to get a nurse to come to my home?", "expected": "How do I book a home nurse visit?"}
+{"query": "I need to move my appointment to another day, is that allowed?", "expected": "Can I reschedule or cancel an appointment?"}
+{"query": "How can I see a doctor over video?", "expected": "How do I book a doctor teleconsultation?"}
+{"query": "After I book, how long until someone confirms the visit?", "expected": "What is the typical wait time for a home visit booking?"}
+{"query": "Can the nurse give my father his insulin shots at home?", "expected": "Can Hoku nurses administer prescribed injections at home?"}
+{"query": "Is there a way to get reminded to take my tablets?", "expected": "Do you offer medication reminder services?"}
+{"query": "Can I ask whether two of my medicines are safe together?", "expected": "Can I ask Hoku AI about drug interactions?"}
+{"query": "Can you deliver my repeat prescription to my house?", "expected": "Does Hoku Health Care help refill prescriptions?"}
+{"query": "I have a temperature and my whole body aches, what should I do?", "expected": "What should I do if I have a fever and body aches?"}
+{"query": "Which kinds of doctors can I consult through Hoku?", "expected": "What specialists are available through Hoku?"}
+{"query": "Do you have care packages for older people?", "expected": "Is Hoku Health Care suitable for elderly care?"}
+{"query": "Is my medical information kept private and secure?", "expected": "How is my health data protected on the Hoku platform?"}
+{"query": "When should I go to hospital instead of booking a home visit?", "expected": "What are the signs I should seek emergency care instead of home care?"}
+{"query": "Will Hoku send an ambulance if it's an emergency?", "expected": "Does Hoku Health Care handle medical emergencies directly?"}
+{"query": "My dad just had knee surgery, can someone help with his recovery at home?", "expected": "What post-surgical care does Hoku provide at home?"}
+{"query": "Can a nurse come late at night?", "expected": "What are Hoku Health Care's operating hours?"}
+{"query": "What is the capital of Australia?", "expected": null}
+{"query": "Recommend a good laptop for programming", "expected": null}
+{"query": "Who won the cricket match yesterday?", "expected": null}
+{"query": "How do I bake sourdough bread?", "expected": null}
+{"query": "Translate good morning into French", "expected": null}
+{"query": "How much is a flight from Karachi to Dubai?", "expected": null}
+{"query": "Does Amazon deliver to Lahore?", "expected": null}
+{"query": "What are the opening hours of Lahore's Emporium mall?", "expected": null}
+{"query": "Can I book a hotel room in London through you?", "expected": null}
+{"query": "How do I cancel my Netflix subscription?", "expected": null}
+{"query": "Which bank gives the best home loan rates in the UK?", "expected": null}
+{"query": "Is the Dubai metro running late tonight?", "expected": null}
