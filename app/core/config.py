@@ -33,8 +33,13 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Database
+    # Database. PostgreSQL URLs pass straight to psycopg2, so libpq options
+    # such as ?sslmode=require (Neon) work unchanged.
     DATABASE_URL: str = "postgresql://user:password@localhost:5432/hoku_health"
+    #: SQLAlchemy pool (PostgreSQL). Small values suit a free hosted database
+    #: and one Cloud Run instance, e.g. 2 and 3.
+    DB_POOL_SIZE: int = Field(default=10, ge=1)
+    DB_MAX_OVERFLOW: int = Field(default=20, ge=0)
 
     # Security. No default key: outside ENVIRONMENT=test the app refuses to
     # start unless SECRET_KEY has 32+ characters (see

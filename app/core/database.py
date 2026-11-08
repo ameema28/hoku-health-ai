@@ -34,25 +34,23 @@ def sql_echo_enabled(cfg=settings) -> bool:
     return bool(cfg.DEBUG) and not cfg.is_production
 
 
-_pool_kwargs: Dict[str, Any] = {
-    "pool_pre_ping": True,  # Health-check connections before use
-    "pool_size": 10,  # Baseline persistent connections
-    "max_overflow": 20,  # Burst capacity under load
-    "pool_recycle": 3600,  # Recycle connections after 1 hour
-    "echo": sql_echo_enabled(),
-}
+def engine_kwargs(cfg=settings) -> Dict[str, Any]:
+    """create_engine() arguments for the configured database."""
+    kwargs: Dict[str, Any] = {
+        "pool_pre_ping": True,  # also covers a hosted DB that suspended idle
+        "pool_recycle": 3600,  # Recycle connections after 1 hour
+        "echo": sql_echo_enabled(cfg),
+    }
+    if cfg.DATABASE_URL.startswith("sqlite"):
+        # SQLite: allow cross-thread use; its pool ignores size/overflow.
+        kwargs["connect_args"] = {"check_same_thread": False}
+    else:
+        kwargs["pool_size"] = cfg.DB_POOL_SIZE
+        kwargs["max_overflow"] = cfg.DB_MAX_OVERFLOW
+    return kwargs
 
-# SQLite-specific: allow cross-thread usage for async contexts
-if settings.DATABASE_URL.startswith("sqlite"):
-    _pool_kwargs["connect_args"] = {"check_same_thread": False}
-    # SQLite uses SingletonThreadPool by default; for file-based SQLite
-    # we still benefit from pool_pre_ping and pool_recycle settings
-    # though pool_size/max_overflow apply to QueuePool on PostgreSQL
 
-engine = create_engine(
-    settings.DATABASE_URL,
-    **_pool_kwargs,
-)
+engine = create_engine(settings.DATABASE_URL, **engine_kwargs())
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

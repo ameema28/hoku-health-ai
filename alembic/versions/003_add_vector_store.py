@@ -4,11 +4,18 @@ On PostgreSQL with the pgvector extension available: enables pgvector,
 creates the vector_store table with a native `vector` column, and adds
 an HNSW index for fast approximate nearest-neighbor search.
 
-On SQLite (and any other non-Postgres backend, or Postgres without
-pgvector installed): creates a plain table with the embedding stored as
-JSON instead. HokuRAG (app/ai/rag.py) already detects the active dialect
-at runtime and falls back to in-Python cosine similarity in that case,
-so this is safe to run as-is against a SQLite dev database.
+On SQLite (and any other non-Postgres backend): creates a plain table with
+the embedding stored as JSON. HokuRAG (app/ai/rag.py) detects the dialect
+at runtime and uses in-Python cosine similarity there.
+
+On PostgreSQL the app always maps the column as `vector` (see
+app/models/vector_store.py), so a JSON column would only break retrieval
+later. The migration therefore stops with a clear error when pgvector is
+not installed on the server, or when the migrating role may not enable it
+(pgvector is not a trusted extension: it needs a superuser or, on hosted
+Postgres such as Neon, the database owner). An extension that already
+exists is accepted, so an administrator can run
+`CREATE EXTENSION IF NOT EXISTS vector;` once and then migrate as the app.
 
 Revision ID: 003
 Revises: 002
@@ -48,22 +55,25 @@ def upgrade() -> None:
 
     use_pgvector = False
     if is_postgres:
-        if _pgvector_extension_available(bind):
-            try:
-                op.execute("CREATE EXTENSION IF NOT EXISTS vector")
-                use_pgvector = True
-            except Exception as exc:
-                logger.warning(
-                    "Could not enable pgvector extension (may require superuser "
-                    "privileges): %s. Falling back to a JSON embedding column.",
-                    exc,
-                )
-        else:
-            logger.warning(
-                "pgvector extension not available on this Postgres server. "
-                "Falling back to a JSON embedding column -- install pgvector "
-                "and re-run this migration to get native vector search."
+        if not _pgvector_extension_available(bind):
+            raise RuntimeError(
+                "The pgvector extension is not installed on this PostgreSQL "
+                "server. Use a server with pgvector (e.g. the "
+                "pgvector/pgvector image or Neon) and run the migration again."
             )
+        try:
+            # SAVEPOINT: a failed CREATE EXTENSION must not leave the
+            # migration transaction aborted.
+            with bind.begin_nested():
+                bind.execute(sa.text("CREATE EXTENSION IF NOT EXISTS vector"))
+        except Exception as exc:
+            raise RuntimeError(
+                "Could not enable the pgvector extension "
+                f"({type(exc).__name__}). Connect as the database owner or a "
+                "superuser, run: CREATE EXTENSION IF NOT EXISTS vector; "
+                "then run the migration again."
+            ) from None
+        use_pgvector = True
     else:
         logger.info(
             "Non-Postgres dialect ('%s') detected -- creating vector_store with "
@@ -92,7 +102,9 @@ def upgrade() -> None:
 
     existing = {ix["name"] for ix in sa.inspect(bind).get_indexes("vector_store")}
     if "ix_vector_store_category" not in existing:
-        op.create_index("ix_vector_store_category", "vector_store", ["category"], unique=False)
+        op.create_index(
+            "ix_vector_store_category", "vector_store", ["category"], unique=False
+        )
 
     if use_pgvector:
         udt = bind.execute(
