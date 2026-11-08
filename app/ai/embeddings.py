@@ -25,7 +25,8 @@ Windows / environment fallback:
 """
 
 import logging
-from typing import Any, List, Optional
+import threading
+from typing import Any, Dict, List, Optional
 
 from app.core.config import settings
 
@@ -45,6 +46,13 @@ except ImportError as _import_exc:
     )
 
 
+#: Loaded models, shared by every EmbeddingManager in the process: the
+#: startup warm-up, the chatbot's RAG and the admin endpoints all use the
+#: same model object instead of each loading their own copy.
+_MODEL_CACHE: Dict[str, Any] = {}
+_MODEL_LOCK = threading.Lock()
+
+
 class EmbeddingManager:
     """Loads the embedding model once and generates embeddings on demand."""
 
@@ -55,18 +63,22 @@ class EmbeddingManager:
 
     @property
     def model(self) -> Optional[Any]:
-        """Lazily load the sentence-transformers model."""
+        """Lazily load the sentence-transformers model (once per process)."""
         if self._model is None and SENTENCE_TRANSFORMERS_AVAILABLE:
-            try:
-                self._model = SentenceTransformer(self.model_name)
-                logger.info("Embedding model '%s' loaded", self.model_name)
-            except Exception as exc:
-                logger.warning(
-                    "Failed to load embedding model '%s': %s",
-                    self.model_name,
-                    type(exc).__name__,
-                )
-                self._model = None
+            with _MODEL_LOCK:
+                cached = _MODEL_CACHE.get(self.model_name)
+                if cached is None:
+                    try:
+                        cached = SentenceTransformer(self.model_name)
+                        _MODEL_CACHE[self.model_name] = cached
+                        logger.info("Embedding model '%s' loaded", self.model_name)
+                    except Exception as exc:
+                        logger.warning(
+                            "Failed to load embedding model '%s': %s",
+                            self.model_name,
+                            type(exc).__name__,
+                        )
+                self._model = cached
         return self._model
 
     def get_embedding(self, text: str) -> List[float]:

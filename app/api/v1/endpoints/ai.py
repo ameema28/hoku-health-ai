@@ -43,6 +43,7 @@ from fastapi import (
 from sqlalchemy.orm import Session
 
 from app.ai.rag import HokuRAG
+from app.ai.readiness import check_rag, health_payload
 from app.core.client_ip import client_ip
 from app.core.config import settings
 from app.core.dependencies import get_db
@@ -532,17 +533,21 @@ async def get_chat_history(
     summary="AI Service Health Check",
     operation_id="ai_health_check",
     tags=["Health"],
-    description="Unauthenticated liveness probe used by Docker, Render, and CI.",
+    description=(
+        "Unauthenticated probe. Always HTTP 200. `rag_ready` is true when the "
+        "startup warm-up found FAQ content (embedding model + FAQ index); "
+        "`status` is `degraded` otherwise. Same payload as `GET /health`."
+    ),
 )
-async def health_check() -> Dict[str, str]:
+async def health_check() -> Dict[str, Any]:
     """
     Check AI service health.
 
     Returns:
-        Dict[str, str]: A static ``ok`` payload. Intentionally cheap and
-        auth-free so orchestrators can probe it.
+        Dict[str, Any]: ``{"status": "ok" | "degraded", "service", "rag_ready"}``.
+        Cheap (no I/O) and auth-free so orchestrators can probe it.
     """
-    return {"status": "ok", "service": "Hoku AI Chatbot"}
+    return health_payload()
 
 
 # ---------------------------------------------------------------------------
@@ -582,7 +587,9 @@ async def seed_rag(
         def _do_seed() -> Tuple[int, int]:
             rag = HokuRAG(db=db)
             rag.create_vector_store()
-            return rag.upsert_faq_documents(FAQS)
+            result = rag.upsert_faq_documents(FAQS)
+            check_rag(rag)  # seeding an empty index makes RAG ready
+            return result
 
         added, skipped = await asyncio.to_thread(_do_seed)
 

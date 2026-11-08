@@ -29,6 +29,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.ai.readiness import health_payload
 from app.api.v1.endpoints import ai, auth
 from app.core.config import settings
 from app.core.logging import (
@@ -62,10 +63,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
     Application lifespan manager.
 
-    On startup, run four best-effort warm-up steps so the first request
-    is served hot. Each is isolated: a failure is logged and startup
-    proceeds, because the pipeline already degrades gracefully (embedding
-    zero-vector fallback, lazy LLM re-init, SQLite pgvector fallback).
+    On startup, run four best-effort warm-up steps on the serving chatbot
+    (pgvector check, LLM clients, DB pool, embedding model + one FAQ query)
+    so the first request is served hot. uvicorn runs this before it opens
+    the port. Each step is isolated: a failure is logged and startup
+    proceeds; the RAG step records ``rag_ready`` for the health endpoints.
 
     Args:
         app: The FastAPI application instance.
@@ -82,8 +84,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     await _verify_pgvector()
     await _warm_up_chatbot()
-    await _warm_up_embeddings()
     await _prime_db_pool()
+    await _warm_up_rag()
 
     logger.info("Startup warm-up complete; ready to accept traffic.")
     yield
@@ -128,12 +130,11 @@ async def _verify_pgvector() -> None:
 
 
 async def _warm_up_chatbot() -> None:
-    """Eagerly initialize Groq clients and the LLM chain."""
+    """Initialize the serving chatbot's Groq clients and LLM chain."""
     try:
-        from app.ai.chatbot import HokuChatbot
+        from app.services.ai_service import _chatbot
 
-        chatbot = HokuChatbot()
-        await asyncio.to_thread(chatbot.warm_up)
+        await asyncio.to_thread(_chatbot.warm_up)
         logger.info("Chatbot/LLM warm-up completed.")
     except Exception as exc:  # noqa: BLE001
         logger.warning(
@@ -141,19 +142,27 @@ async def _warm_up_chatbot() -> None:
         )
 
 
-async def _warm_up_embeddings() -> None:
-    """Load the sentence-transformers model so the first RAG lookup is warm."""
-    try:
-        from app.ai.embeddings import EmbeddingManager
+async def _warm_up_rag() -> None:
+    """
+    Load the embedding model and query the FAQ index through the serving
+    chatbot's RAG, so the first FAQ question is warm; records ``rag_ready``.
+    """
+    from app.ai.readiness import check_rag, set_rag_ready
 
-        manager = EmbeddingManager()
-        # A tiny embed call forces the model to load into memory.
-        await asyncio.to_thread(manager.get_embedding, "warm up")
-        logger.info("Embedding model warm-up completed.")
+    try:
+        from app.services.ai_service import _chatbot
+
+        ready = await asyncio.to_thread(check_rag, _chatbot.rag)
     except Exception as exc:  # noqa: BLE001
+        logger.warning("RAG warm-up failed: %s", type(exc).__name__)
+        set_rag_ready(False)
+        return
+    if ready:
+        logger.info("RAG warm-up completed: embedding model and FAQ index ready.")
+    else:
         logger.warning(
-            "Embedding warm-up failed (RAG will fall back to zero-vectors): %s",
-            type(exc).__name__,
+            "RAG warm-up found no FAQ content (model, FAQ rows or vector "
+            "query unavailable); FAQ questions will take the no-match path."
         )
 
 
@@ -337,6 +346,16 @@ async def root() -> dict:
         "version": APP_VERSION,
         "environment": settings.ENVIRONMENT,
     }
+
+
+@app.get(
+    "/health",
+    tags=["Health"],
+    summary="Readiness probe (same payload as /api/ai/health)",
+)
+async def health() -> dict:
+    """``{"status": "ok" | "degraded", "service", "rag_ready"}``, always 200."""
+    return health_payload()
 
 
 @app.get(

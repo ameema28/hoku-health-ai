@@ -83,7 +83,7 @@ class TestUnauthenticatedEndpoints:
     def test_health_ok(self, client: TestClient) -> None:
         resp = client.get("/api/ai/health")
         assert resp.status_code == 200
-        assert resp.json()["status"] == "ok"
+        assert resp.json()["status"] in ("ok", "degraded")
 
     def test_root_ok(self, client: TestClient) -> None:
         resp = client.get("/")
