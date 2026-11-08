@@ -76,6 +76,9 @@ from app.utils.constants import SAFETY_DISCLAIMER
 
 logger = logging.getLogger(__name__)
 
+#: Fallback specialty when the mapped one has no available doctor.
+GENERAL_PHYSICIAN = "General Physician"
+
 # Day 5: intents for which a Hoku FAQ lookup is worthwhile.
 _RAG_ELIGIBLE_INTENTS = {IntentEnum.GENERAL, IntentEnum.SYMPTOM}
 
@@ -292,9 +295,21 @@ class HokuChatbot:
                     "No specialist mapping for symptoms %s — falling back to General Physician",
                     symptoms,
                 )
-                specialist = "General Physician"
+                specialist = GENERAL_PHYSICIAN
 
+            requested_specialist: Optional[str] = None
             doctors = SpecialistMapper.get_doctors_by_specialist(db, specialist)
+            if not doctors and specialist != GENERAL_PHYSICIAN:
+                # No doctor for the mapped specialty: suggest a General
+                # Physician instead and report what was originally mapped.
+                logger.info(
+                    "No available doctors for '%s'; falling back to %s",
+                    specialist,
+                    GENERAL_PHYSICIAN,
+                )
+                requested_specialist = specialist
+                specialist = GENERAL_PHYSICIAN
+                doctors = SpecialistMapper.get_doctors_by_specialist(db, specialist)
             if not doctors:
                 logger.info("No available doctors found for '%s'", specialist)
                 return None
@@ -324,6 +339,7 @@ class HokuChatbot:
                 experience=getattr(top_doctor, "experience_years", None),
                 availability=availability_schemas if availability_schemas else None,
                 doctor_id=getattr(top_doctor, "id", None),
+                requested_specialist=requested_specialist,
             )
 
             elapsed = time.perf_counter() - lookup_start

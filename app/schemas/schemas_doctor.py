@@ -72,3 +72,10 @@ class DoctorSuggestion(BaseModel):
     doctor_id: Optional[int] = Field(
         None, description="Suggested doctor's primary key."
     )
+    requested_specialist: Optional[str] = Field(
+        None,
+        description=(
+            "Set when no doctor of the mapped specialty was available and a "
+            "General Physician is suggested instead: the originally mapped specialty."
+        ),
+    )
