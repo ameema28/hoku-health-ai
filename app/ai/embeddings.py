@@ -62,7 +62,9 @@ class EmbeddingManager:
                 logger.info("Embedding model '%s' loaded", self.model_name)
             except Exception as exc:
                 logger.warning(
-                    "Failed to load embedding model '%s': %s", self.model_name, exc
+                    "Failed to load embedding model '%s': %s",
+                    self.model_name,
+                    type(exc).__name__,
                 )
                 self._model = None
         return self._model
@@ -87,7 +89,7 @@ class EmbeddingManager:
             vector = self.model.encode(text, normalize_embeddings=True)
             return vector.tolist()
         except Exception as exc:
-            logger.warning("Embedding generation failed: %s", exc)
+            logger.warning("Embedding generation failed: %s", type(exc).__name__)
             return [0.0] * self.dimension
 
     def batch_embed(self, texts: List[str]) -> List[List[float]]:
@@ -110,7 +112,7 @@ class EmbeddingManager:
             vectors = self.model.encode(texts, normalize_embeddings=True)
             return [v.tolist() for v in vectors]
         except Exception as exc:
-            logger.warning("Batch embedding generation failed: %s", exc)
+            logger.warning("Batch embedding generation failed: %s", type(exc).__name__)
             return [[0.0] * self.dimension for _ in texts]
 
 

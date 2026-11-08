@@ -103,7 +103,9 @@ class IntentClassifier:
                 )
                 logger.info("Intent classification LLM (%s) initialized", self.model)
             except Exception as exc:
-                logger.warning("Failed to initialize intent LLM: %s", exc)
+                logger.warning(
+                    "Failed to initialize intent LLM: %s", type(exc).__name__
+                )
                 self._llm = None
         return self._llm
 
@@ -207,10 +209,10 @@ class IntentClassifier:
 
         except Exception as exc:
             elapsed = time.perf_counter() - start_time
-            logger.exception(
+            logger.error(
                 "Intent classification failed after %.3fs: %s",
                 elapsed,
-                exc,
+                type(exc).__name__,
             )
             return (IntentEnum.GENERAL, 0.0)
 

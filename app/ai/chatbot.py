@@ -140,7 +140,7 @@ class HokuChatbot:
             try:
                 _ = self.build_chain()
             except Exception as exc:
-                logger.warning("Chain warm-up skipped: %s", exc)
+                logger.warning("Chain warm-up skipped: %s", type(exc).__name__)
 
         logger.info("HokuChatbot warm-up complete.")
 
@@ -160,7 +160,7 @@ class HokuChatbot:
                     raise RuntimeError("LLMFactory returned no fast LLM")
                 logger.info("Fast LLM (%s) initialized via LLMFactory", self.fast_model)
             except Exception as exc:
-                logger.warning("Failed to initialize fast LLM: %s", exc)
+                logger.warning("Failed to initialize fast LLM: %s", type(exc).__name__)
                 self._fast_llm = None
         return self._fast_llm
 
@@ -186,7 +186,7 @@ class HokuChatbot:
                     raise RuntimeError("LLMFactory returned no main LLM")
                 logger.info("Main LLM (%s) initialized via LLMFactory", self.main_model)
             except Exception as exc:
-                logger.warning("Failed to initialize main LLM: %s", exc)
+                logger.warning("Failed to initialize main LLM: %s", type(exc).__name__)
                 self._main_llm = None
         return self._main_llm
 
@@ -297,8 +297,8 @@ class HokuChatbot:
             specialist = SpecialistMapper.map_symptoms_to_specialist(symptoms)
             if not specialist:
                 logger.info(
-                    "No specialist mapping for symptoms %s — falling back to General Physician",
-                    symptoms,
+                    "No specialist mapping for %d symptoms — falling back to General Physician",
+                    len(symptoms),
                 )
                 specialist = GENERAL_PHYSICIAN
 
@@ -361,7 +361,7 @@ class HokuChatbot:
             logger.warning(
                 "Doctor suggestion lookup failed after %.3fs: %s",
                 elapsed,
-                exc,
+                type(exc).__name__,
             )
             return None
 
@@ -401,10 +401,10 @@ class HokuChatbot:
 
         if is_emergency:
             logger.critical(
-                "Emergency detected for user_id=%s (urgency=%s, reason=%s) — bypassing LLM/RAG/cache",
+                # reason is the matched patient text: never logged.
+                "Emergency detected for user_id=%s (urgency=%s) — bypassing LLM/RAG/cache",
                 user_id,
                 urgency,
-                reason,
             )
             metrics.increment_emergency_detection()
 
@@ -525,7 +525,8 @@ class HokuChatbot:
                 faq_context = ""
             except Exception as exc:
                 logger.warning(
-                    "RAG lookup failed, falling back to general knowledge: %s", exc
+                    "RAG lookup failed, falling back to general knowledge: %s",
+                    type(exc).__name__,
                 )
                 faq_context = ""
             optimizer.enforce_budget("rag_retrieve", rag_start)
@@ -883,11 +884,15 @@ class HokuChatbot:
 
         except Exception as exc:
             elapsed = time.perf_counter() - overall_start
-            logger.exception(
-                "Groq error after %.3fs for user_id=%s: %s", elapsed, user_id, exc
+            # No traceback / str(exc): provider errors can echo prompt text.
+            logger.error(
+                "Groq error after %.3fs for user_id=%s: %s",
+                elapsed,
+                user_id,
+                type(exc).__name__,
             )
             metrics.record_latency("/api/ai/chat", elapsed)
-            fallback = self._fallback_response(str(exc))
+            fallback = self._fallback_response(type(exc).__name__)
             fallback["intent"] = intent.value
             fallback["confidence"] = confidence
             fallback["doctor_suggestion"] = (

@@ -26,12 +26,18 @@ from app.core.config import settings
 # errors from stale/closed connections (~50-100ms saved per stale hit).
 # ------------------------------------------------------------------
 
+
+def sql_echo_enabled(cfg=settings) -> bool:
+    """SQL echo logs bound parameters (patient messages): never in production."""
+    return bool(cfg.DEBUG) and not cfg.is_production
+
+
 _pool_kwargs = {
     "pool_pre_ping": True,  # Health-check connections before use
     "pool_size": 10,  # Baseline persistent connections
     "max_overflow": 20,  # Burst capacity under load
     "pool_recycle": 3600,  # Recycle connections after 1 hour
-    "echo": settings.DEBUG,
+    "echo": sql_echo_enabled(),
 }
 
 # SQLite-specific: allow cross-thread usage for async contexts

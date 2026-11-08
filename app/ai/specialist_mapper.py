@@ -92,10 +92,9 @@ class SpecialistMapper:
             if result:
                 match, score, _ = result  # type: ignore
                 specialty = cls.SPECIALIST_MAP.get(match)
+                # Neither the symptom nor the matched key (it names the symptom).
                 logger.debug(
-                    "Fuzzy match: symptom='%s' -> match='%s' (score=%.1f) -> specialty='%s'",
-                    symptom,
-                    match,
+                    "Fuzzy match (score=%.1f) -> specialty='%s'",
                     score,
                     specialty,
                 )
@@ -110,7 +109,7 @@ class SpecialistMapper:
                 best_score,
             )
         else:
-            logger.info("No specialist match found for symptoms: %s", symptoms)
+            logger.info("No specialist match found for %d symptoms", len(symptoms))
 
         return best_specialty
 

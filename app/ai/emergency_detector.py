@@ -199,11 +199,11 @@ class EmergencyDetector:
         if high_match:
             matched_keyword = high_match.group(0)
             elapsed = time.perf_counter() - start_time
+            # Never log the message or the matched words (patient text).
             logger.critical(
-                "EMERGENCY DETECTED (HIGH) in %.4fs: matched='%s', preview=%s...",
+                "EMERGENCY DETECTED (HIGH) in %.4fs (message_len=%d)",
                 elapsed,
-                matched_keyword,
-                message[:100],
+                len(message),
             )
             return (True, cls.URGENCY_HIGH, matched_keyword)
 
@@ -213,10 +213,9 @@ class EmergencyDetector:
             matched_keyword = moderate_match.group(0)
             elapsed = time.perf_counter() - start_time
             logger.warning(
-                "EMERGENCY DETECTED (MODERATE) in %.4fs: matched='%s', preview=%s...",
+                "EMERGENCY DETECTED (MODERATE) in %.4fs (message_len=%d)",
                 elapsed,
-                matched_keyword,
-                message[:100],
+                len(message),
             )
             return (True, cls.URGENCY_MODERATE, matched_keyword)
 
@@ -258,9 +257,8 @@ class EmergencyDetector:
                 )
                 if tier2_result[0]:  # is_emergency
                     logger.critical(
-                        "EMERGENCY DETECTED (Tier 2 LLM): urgency=%s, reason=%s",
+                        "EMERGENCY DETECTED (Tier 2 LLM): urgency=%s",
                         tier2_result[1],
-                        tier2_result[2],
                     )
                     return tier2_result
             except asyncio.TimeoutError:
@@ -269,7 +267,7 @@ class EmergencyDetector:
                     ai_settings.EMERGENCY_CHECK_TIMEOUT,
                 )
             except Exception as exc:
-                logger.warning("Tier 2 emergency check failed: %s", exc)
+                logger.warning("Tier 2 emergency check failed: %s", type(exc).__name__)
 
         return (False, cls.URGENCY_NONE, "")
 
@@ -366,7 +364,7 @@ class EmergencyDetector:
                 return (is_emergency, urgency, reason)
 
         except Exception as exc:
-            logger.warning("Tier 2 LLM emergency check failed: %s", exc)
+            logger.warning("Tier 2 LLM emergency check failed: %s", type(exc).__name__)
 
         return (False, cls.URGENCY_NONE, "")
 
@@ -393,7 +391,9 @@ class EmergencyDetector:
             prompt = PromptTemplate(template="{text}", input_variables=["text"])
             return prompt | llm | StrOutputParser()
         except Exception as exc:
-            logger.warning("Unable to build Tier 2 emergency chain: %s", exc)
+            logger.warning(
+                "Unable to build Tier 2 emergency chain: %s", type(exc).__name__
+            )
             return None
 
     @classmethod

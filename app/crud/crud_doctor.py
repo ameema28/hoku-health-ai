@@ -50,7 +50,9 @@ def get_doctors_by_specialty(db: Session, specialty: str) -> List[Doctor]:
     except Exception as exc:
         db.rollback()
         logger.error(
-            "Failed to retrieve doctors for specialty='%s': %s", specialty, exc
+            "Failed to retrieve doctors for specialty='%s': %s",
+            specialty,
+            type(exc).__name__,
         )
         raise DatabaseOperationException("Failed to retrieve doctors") from exc
 
@@ -81,7 +83,9 @@ def get_doctor_by_id(db: Session, doctor_id: int) -> Optional[Doctor]:
         return result
     except Exception as exc:
         db.rollback()
-        logger.error("Failed to retrieve doctor id=%d: %s", doctor_id, exc)
+        logger.error(
+            "Failed to retrieve doctor id=%d: %s", doctor_id, type(exc).__name__
+        )
         raise DatabaseOperationException("Failed to retrieve doctor") from exc
 
 
@@ -127,7 +131,7 @@ def get_doctor_availability(
         logger.error(
             "Failed to retrieve availability for doctor_id=%d: %s",
             doctor_id,
-            exc,
+            type(exc).__name__,
         )
         raise DatabaseOperationException(
             "Failed to retrieve doctor availability"

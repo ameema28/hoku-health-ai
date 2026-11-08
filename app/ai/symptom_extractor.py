@@ -112,7 +112,7 @@ def _llm_extract_symptoms_sync(text: str) -> List[str]:
                 return _normalize_symptoms(symptoms)
 
     except Exception as exc:
-        logger.debug("LLM symptom extraction failed: %s", exc)
+        logger.debug("LLM symptom extraction failed: %s", type(exc).__name__)
 
     return []
 
@@ -130,7 +130,7 @@ async def _llm_extract_symptoms(text: str) -> List[str]:
         )
         return []
     except Exception as exc:
-        logger.warning("Symptom extraction error: %s", exc)
+        logger.warning("Symptom extraction error: %s", type(exc).__name__)
         return []
 
 
@@ -141,7 +141,9 @@ async def extract_symptoms_from_text(text: str) -> List[str]:
     if regex_symptoms:
         elapsed = time.perf_counter() - start_time
         logger.info(
-            "Fast-path symptom extraction: %s (%.3fms)", regex_symptoms, elapsed * 1000
+            "Fast-path symptom extraction: %d symptoms (%.3fms)",
+            len(regex_symptoms),
+            elapsed * 1000,
         )
         return regex_symptoms
 
@@ -154,7 +156,9 @@ async def extract_symptoms_from_text(text: str) -> List[str]:
             if llm_symptoms:
                 elapsed = time.perf_counter() - start_time
                 logger.info(
-                    "LLM symptom extraction: %s (%.3fms)", llm_symptoms, elapsed * 1000
+                    "LLM symptom extraction: %d symptoms (%.3fms)",
+                    len(llm_symptoms),
+                    elapsed * 1000,
                 )
                 return llm_symptoms
         except asyncio.TimeoutError:
@@ -163,7 +167,7 @@ async def extract_symptoms_from_text(text: str) -> List[str]:
                 ai_settings.SYMPTOM_EXTRACTION_TIMEOUT,
             )
         except Exception as exc:
-            logger.warning("Symptom extraction error: %s", exc)
+            logger.warning("Symptom extraction error: %s", type(exc).__name__)
 
     logger.info("No symptoms extracted, defaulting to ['fever'] -> General Physician")
     return ["fever"]

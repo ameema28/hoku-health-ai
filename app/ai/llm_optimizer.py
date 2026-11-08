@@ -135,7 +135,7 @@ class LLMFactory:
             logger.debug("Fast LLM created: %s", resolved_model)
             return llm
         except Exception as exc:
-            logger.warning("Failed to create fast LLM: %s", exc)
+            logger.warning("Failed to create fast LLM: %s", type(exc).__name__)
             return None
 
     @staticmethod
@@ -202,7 +202,7 @@ class LLMFactory:
             logger.debug("Main LLM created: %s", resolved_model)
             return llm
         except Exception as exc:
-            logger.warning("Failed to create main LLM: %s", exc)
+            logger.warning("Failed to create main LLM: %s", type(exc).__name__)
             return None
 
     @staticmethod

@@ -153,10 +153,10 @@ async def process_chat(
         raise
 
     except Exception as exc:
-        logger.exception(
+        logger.error(
             "Error processing chat for user %s: %s",
             user_id,
-            exc,
+            type(exc).__name__,
         )
         # Graceful fallback — do not persist failed turns
         return {

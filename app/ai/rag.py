@@ -307,7 +307,9 @@ class HokuRAG:
                     )
                     scores.append(score)
         except Exception as exc:
-            logger.warning("similarity_search failed, returning no results: %s", exc)
+            logger.warning(
+                "similarity_search failed, returning no results: %s", type(exc).__name__
+            )
             return []
 
         elapsed = time.perf_counter() - start_time

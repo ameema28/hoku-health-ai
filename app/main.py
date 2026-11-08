@@ -122,7 +122,9 @@ async def _verify_pgvector() -> None:
                 "Run: CREATE EXTENSION IF NOT EXISTS vector;"
             )
     except Exception as exc:  # noqa: BLE001 - warm-up must never abort startup
-        logger.warning("pgvector verification failed (non-fatal): %s", exc)
+        logger.warning(
+            "pgvector verification failed (non-fatal): %s", type(exc).__name__
+        )
 
 
 async def _warm_up_chatbot() -> None:
@@ -134,7 +136,9 @@ async def _warm_up_chatbot() -> None:
         await asyncio.to_thread(chatbot.warm_up)
         logger.info("Chatbot/LLM warm-up completed.")
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Chatbot warm-up failed (will retry lazily): %s", exc)
+        logger.warning(
+            "Chatbot warm-up failed (will retry lazily): %s", type(exc).__name__
+        )
 
 
 async def _warm_up_embeddings() -> None:
@@ -148,7 +152,8 @@ async def _warm_up_embeddings() -> None:
         logger.info("Embedding model warm-up completed.")
     except Exception as exc:  # noqa: BLE001
         logger.warning(
-            "Embedding warm-up failed (RAG will fall back to zero-vectors): %s", exc
+            "Embedding warm-up failed (RAG will fall back to zero-vectors): %s",
+            type(exc).__name__,
         )
 
 
@@ -166,7 +171,7 @@ async def _prime_db_pool() -> None:
         await asyncio.to_thread(_ping)
         logger.info("Database pool primed.")
     except Exception as exc:  # noqa: BLE001
-        logger.warning("DB pool priming failed (non-fatal): %s", exc)
+        logger.warning("DB pool priming failed (non-fatal): %s", type(exc).__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -291,8 +296,11 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     Returns:
         JSONResponse: A safe 500 payload.
     """
-    logger.exception(
-        "Unhandled exception on %s %s: %s", request.method, request.url.path, exc
+    logger.error(
+        "Unhandled exception on %s %s: %s",
+        request.method,
+        request.url.path,
+        type(exc).__name__,
     )
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

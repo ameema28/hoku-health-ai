@@ -416,7 +416,7 @@ async def chat(
     except HTTPException:
         raise
     except Exception as exc:
-        logger.exception("Unhandled error in chat endpoint: %s", exc)
+        logger.error("Unhandled error in chat endpoint: %s", type(exc).__name__)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred while processing your request.",
@@ -495,8 +495,10 @@ async def get_chat_history(
     except HTTPException:
         raise
     except Exception as exc:
-        logger.exception(
-            "Error retrieving chat history for user %s: %s", current_user.get("id"), exc
+        logger.error(
+            "Error retrieving chat history for user %s: %s",
+            current_user.get("id"),
+            type(exc).__name__,
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -574,7 +576,7 @@ async def seed_rag(
             "collection": settings.COLLECTION_NAME,
         }
     except Exception as exc:
-        logger.exception("RAG seeding failed: %s", exc)
+        logger.error("RAG seeding failed: %s", type(exc).__name__)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to seed FAQ vector store.",
@@ -628,7 +630,7 @@ async def search_rag(
             ],
         }
     except Exception as exc:
-        logger.exception("RAG debug search failed: %s", exc)
+        logger.error("RAG debug search failed: %s", type(exc).__name__)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to run similarity search.",
@@ -683,7 +685,9 @@ async def list_doctors_by_specialty(
             return []
         return [DoctorRead.model_validate(d) for d in doctors]
     except Exception as exc:
-        logger.exception("Failed to list doctors for specialty=%s: %s", specialty, exc)
+        logger.error(
+            "Failed to list doctors for specialty=%s: %s", specialty, type(exc).__name__
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve doctor list.",
@@ -728,8 +732,10 @@ async def get_doctor_schedule(
             return []
         return [DoctorAvailability.model_validate(s) for s in slots]
     except Exception as exc:
-        logger.exception(
-            "Failed to get availability for doctor_id=%s: %s", doctor_id, exc
+        logger.error(
+            "Failed to get availability for doctor_id=%s: %s",
+            doctor_id,
+            type(exc).__name__,
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -777,7 +783,7 @@ async def get_monitoring_metrics(
         )
         return {"status": "ok", "metrics": summary}
     except Exception as exc:
-        logger.exception("Failed to retrieve monitoring metrics: %s", exc)
+        logger.error("Failed to retrieve monitoring metrics: %s", type(exc).__name__)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve monitoring metrics.",

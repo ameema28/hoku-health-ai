@@ -402,7 +402,9 @@ class SafetyGuardrails:
                         severity=final_severity,
                     )
                 except Exception as log_exc:
-                    logger.warning("Failed to log safety violation: %s", log_exc)
+                    logger.warning(
+                        "Failed to log safety violation: %s", type(log_exc).__name__
+                    )
 
             # Sanitize for next attempt
             current_text = cls.sanitize_response(current_text)
@@ -428,6 +430,8 @@ class SafetyGuardrails:
                     severity="high",
                 )
             except Exception as log_exc:
-                logger.warning("Failed to log 3-strike fallback: %s", log_exc)
+                logger.warning(
+                    "Failed to log 3-strike fallback: %s", type(log_exc).__name__
+                )
 
         return (fallback, all_violations, "high")

@@ -66,7 +66,7 @@ def log_safety_violation(
         logger.error(
             "Failed to create safety_log for user_id=%s: %s",
             user_id,
-            exc,
+            type(exc).__name__,
         )
         raise DatabaseOperationException("Failed to persist safety log") from exc
 
@@ -116,7 +116,7 @@ def get_safety_logs_by_user(
         logger.error(
             "Failed to retrieve safety logs for user_id=%s: %s",
             user_id,
-            exc,
+            type(exc).__name__,
         )
         raise DatabaseOperationException("Failed to retrieve safety logs") from exc
 
@@ -162,7 +162,7 @@ def get_safety_logs_by_type(
         logger.error(
             "Failed to retrieve safety logs for type='%s': %s",
             violation_type,
-            exc,
+            type(exc).__name__,
         )
         raise DatabaseOperationException(
             "Failed to retrieve safety logs by type"
@@ -210,7 +210,7 @@ def get_safety_logs_by_severity(
         logger.error(
             "Failed to retrieve safety logs for severity='%s': %s",
             severity,
-            exc,
+            type(exc).__name__,
         )
         raise DatabaseOperationException(
             "Failed to retrieve safety logs by severity"

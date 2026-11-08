@@ -62,7 +62,7 @@ def create_chat_history(
         logger.error(
             "Failed to create chat_history for user_id=%s: %s",
             user_id,
-            exc,
+            type(exc).__name__,
         )
         raise DatabaseOperationException("Failed to persist chat history") from exc
 
@@ -113,7 +113,7 @@ def get_chat_history_by_user(
         logger.error(
             "Failed to retrieve chat history for user_id=%s: %s",
             user_id,
-            exc,
+            type(exc).__name__,
         )
         raise DatabaseOperationException("Failed to retrieve chat history") from exc
 
@@ -146,7 +146,7 @@ def get_chat_history_count(db: Session, user_id: int) -> int:
         logger.error(
             "Failed to count chat history for user_id=%s: %s",
             user_id,
-            exc,
+            type(exc).__name__,
         )
         raise DatabaseOperationException("Failed to count chat history") from exc
 
@@ -193,7 +193,7 @@ def get_recent_chat_history(
         logger.error(
             "Failed to retrieve recent chat for user_id=%s: %s",
             user_id,
-            exc,
+            type(exc).__name__,
         )
         raise DatabaseOperationException(
             "Failed to retrieve recent chat history"

@@ -245,6 +245,6 @@ async def generate_with_timeout(
     except Exception as exc:
         logger.warning(
             "[PERFORMANCE] Operation failed: %s — returning fallback",
-            exc,
+            type(exc).__name__,
         )
         return fallback_value
