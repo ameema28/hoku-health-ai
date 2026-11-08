@@ -19,6 +19,7 @@ from typing import Any, List, Optional
 
 # LangChain imports at module level (required for test patching)
 try:
+    from langchain_core.utils import convert_to_secret_str
     from langchain_groq import ChatGroq
 
     LANGCHAIN_AVAILABLE = True
@@ -127,10 +128,11 @@ class LLMFactory:
         try:
             llm = ChatGroq(
                 model=resolved_model,
-                api_key=resolved_key,
+                api_key=convert_to_secret_str(resolved_key),
+                stop_sequences=None,
                 temperature=0.0,  # Deterministic for classification
                 max_tokens=resolved_max_tokens,  # Minimal: intent + confidence JSON
-                request_timeout=resolved_timeout,
+                timeout=resolved_timeout,
             )
             logger.debug("Fast LLM created: %s", resolved_model)
             return llm
@@ -194,10 +196,11 @@ class LLMFactory:
             # plain-text branch and lose suggestedSpecialist/severity.
             llm = ChatGroq(
                 model=resolved_model,
-                api_key=resolved_key,
+                api_key=convert_to_secret_str(resolved_key),
+                stop_sequences=None,
                 temperature=resolved_temperature,
                 max_tokens=resolved_max_tokens,
-                request_timeout=resolved_timeout,
+                timeout=resolved_timeout,
             )
             logger.debug("Main LLM created: %s", resolved_model)
             return llm

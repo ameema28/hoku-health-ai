@@ -102,7 +102,7 @@ def get_safety_logs_by_user(
             .offset(skip)
             .limit(limit)
         )
-        result = db.execute(stmt).scalars().all()
+        result = list(db.execute(stmt).scalars().all())
         logger.info(
             "Retrieved %d safety log entries for user_id=%s (skip=%d, limit=%d)",
             len(result),
@@ -150,7 +150,7 @@ def get_safety_logs_by_type(
             .offset(skip)
             .limit(limit)
         )
-        result = db.execute(stmt).scalars().all()
+        result = list(db.execute(stmt).scalars().all())
         logger.info(
             "Retrieved %d safety logs for violation_type='%s'",
             len(result),
@@ -198,7 +198,7 @@ def get_safety_logs_by_severity(
             .offset(skip)
             .limit(limit)
         )
-        result = db.execute(stmt).scalars().all()
+        result = list(db.execute(stmt).scalars().all())
         logger.info(
             "Retrieved %d safety logs for severity='%s'",
             len(result),

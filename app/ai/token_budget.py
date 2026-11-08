@@ -34,7 +34,7 @@ def calculate_history_tokens(messages: List[BaseMessage]) -> int:
         encoding = tiktoken.get_encoding("cl100k_base")
         total = 0
         for msg in messages:
-            total += len(encoding.encode(msg.content))
+            total += len(encoding.encode(str(msg.content)))
             # Each message has ~4 tokens of overhead (role tags, separators)
             total += 4
         return total

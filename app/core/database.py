@@ -11,6 +11,8 @@ Day 8 updates:
 - SQLite thread fallback (check_same_thread=False)
 """
 
+from typing import Any, Dict, Iterator
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
@@ -32,7 +34,7 @@ def sql_echo_enabled(cfg=settings) -> bool:
     return bool(cfg.DEBUG) and not cfg.is_production
 
 
-_pool_kwargs = {
+_pool_kwargs: Dict[str, Any] = {
     "pool_pre_ping": True,  # Health-check connections before use
     "pool_size": 10,  # Baseline persistent connections
     "max_overflow": 20,  # Burst capacity under load
@@ -57,7 +59,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
-def get_db() -> Session:
+def get_db() -> Iterator[Session]:
     """
     Yield a database session for dependency injection.
 

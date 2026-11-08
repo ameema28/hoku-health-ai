@@ -28,7 +28,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Union
 
 from fastapi import (
     APIRouter,
@@ -131,7 +131,7 @@ _CHAT_RESPONSE_EXAMPLES: Dict[str, Any] = {
     },
 }
 
-_ERROR_RESPONSES: Dict[int, Dict[str, Any]] = {
+_ERROR_RESPONSES: Dict[Union[int, str], Dict[str, Any]] = {
     status.HTTP_400_BAD_REQUEST: {
         "description": "Message empty or exceeds the 1000-character limit.",
         "content": {

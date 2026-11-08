@@ -34,10 +34,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
-try:
-    from unittest.mock import MagicMock as _MagicMock
-except Exception:
-    _MagicMock = None
+from unittest.mock import MagicMock as _MagicMock
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.output_parsers import StrOutputParser

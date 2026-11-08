@@ -15,7 +15,7 @@ Key design decisions:
 import asyncio
 import logging
 import time
-from typing import Any, Callable, Coroutine, Tuple, Type, Union
+from typing import Any, Callable, Coroutine, Tuple, Type, Union, cast
 
 from app.ai.config import ai_settings
 
@@ -225,7 +225,8 @@ async def generate_with_timeout(
                 coro_or_func(*args, **kwargs), timeout=timeout
             )
         else:
-            thread_task = asyncio.to_thread(coro_or_func, *args, **kwargs)
+            func = cast(Callable[..., Any], coro_or_func)
+            thread_task = asyncio.to_thread(func, *args, **kwargs)
             result = await asyncio.wait_for(thread_task, timeout=timeout)
         return result
 

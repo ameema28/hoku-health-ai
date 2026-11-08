@@ -407,7 +407,7 @@ class TestLLMFactory:
         assert call_kwargs["model"] == "llama-3.1-8b-instant"
         assert call_kwargs["max_tokens"] == 150
         assert call_kwargs["temperature"] == 0.0
-        assert call_kwargs["request_timeout"] == 1.0
+        assert call_kwargs["timeout"] == 1.0
 
     @patch("app.ai.llm_optimizer.ChatGroq")
     @patch("app.ai.llm_optimizer.ai_settings")
@@ -427,7 +427,7 @@ class TestLLMFactory:
         assert call_kwargs["model"] == "llama-3.3-70b-versatile"
         assert call_kwargs["max_tokens"] == 512
         assert call_kwargs["temperature"] == 0.3
-        assert call_kwargs["request_timeout"] == 3.5
+        assert call_kwargs["timeout"] == 3.5
 
     @patch("app.ai.llm_optimizer.LANGCHAIN_AVAILABLE", False)
     def test_get_fast_llm_unavailable_when_langchain_missing(self):

@@ -17,7 +17,7 @@ import logging
 import threading
 import time
 from collections import deque
-from typing import Callable, Dict
+from typing import Any, Callable, Dict
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -73,7 +73,7 @@ class PerformanceMetricsStore:
                 }
             )
 
-    def get_stats(self) -> Dict[str, any]:
+    def get_stats(self) -> Dict[str, Any]:
         """
         Return performance statistics for admin monitoring.
 
@@ -210,7 +210,7 @@ class TimingMiddleware(BaseHTTPMiddleware):
         return response
 
     @classmethod
-    def get_stats(cls) -> Dict[str, any]:
+    def get_stats(cls) -> Dict[str, Any]:
         """
         Expose performance statistics for admin monitoring.
 

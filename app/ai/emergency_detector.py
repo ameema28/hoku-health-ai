@@ -379,14 +379,16 @@ class EmergencyDetector:
         try:
             from langchain_core.output_parsers import StrOutputParser
             from langchain_core.prompts import PromptTemplate
+            from langchain_core.utils import convert_to_secret_str
             from langchain_groq import ChatGroq
 
             llm = ChatGroq(
                 model=ai_settings.INTENT_MODEL,
-                api_key=ai_settings.groq_api_key,
+                api_key=convert_to_secret_str(ai_settings.groq_api_key),
+                stop_sequences=None,
                 temperature=0.0,
                 max_tokens=64,
-                request_timeout=ai_settings.EMERGENCY_CHECK_TIMEOUT,
+                timeout=ai_settings.EMERGENCY_CHECK_TIMEOUT,
             )
             prompt = PromptTemplate(template="{text}", input_variables=["text"])
             return prompt | llm | StrOutputParser()

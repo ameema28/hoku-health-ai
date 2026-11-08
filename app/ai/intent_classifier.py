@@ -29,6 +29,7 @@ from typing import Any, Dict, Optional, Tuple
 from langchain_core.output_parsers import StrOutputParser
 
 try:
+    from langchain_core.utils import convert_to_secret_str
     from langchain_groq import ChatGroq
 
     LANGCHAIN_AVAILABLE = True
@@ -96,10 +97,11 @@ class IntentClassifier:
             try:
                 self._llm = ChatGroq(
                     model=self.model,
-                    api_key=self.groq_api_key,
+                    api_key=convert_to_secret_str(self.groq_api_key),
+                    stop_sequences=None,
                     temperature=0.0,  # Deterministic for classification
                     max_tokens=64,  # Minimal: just JSON with intent + confidence
-                    request_timeout=self.timeout,
+                    timeout=self.timeout,
                 )
                 logger.info("Intent classification LLM (%s) initialized", self.model)
             except Exception as exc:

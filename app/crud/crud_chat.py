@@ -99,7 +99,7 @@ def get_chat_history_by_user(
             .offset(skip)
             .limit(limit)
         )
-        result = db.execute(stmt).scalars().all()
+        result = list(db.execute(stmt).scalars().all())
         logger.info(
             "Retrieved %d chat history entries for user_id=%s (skip=%d, limit=%d)",
             len(result),
@@ -181,7 +181,7 @@ def get_recent_chat_history(
             .order_by(ChatHistory.created_at.desc())
             .limit(limit)
         )
-        result = db.execute(stmt).scalars().all()
+        result = list(db.execute(stmt).scalars().all())
         logger.info(
             "Retrieved %d recent complete chat entries for user_id=%s",
             len(result),

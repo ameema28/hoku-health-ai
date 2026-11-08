@@ -181,6 +181,7 @@ def check_groq(live: bool = False) -> CheckResult:
     from app.ai.config import ai_settings
 
     try:
+        from langchain_core.utils import convert_to_secret_str
         from langchain_groq import ChatGroq
     except ImportError as exc:
         return CheckResult(
@@ -194,11 +195,12 @@ def check_groq(live: bool = False) -> CheckResult:
 
     try:
         llm = ChatGroq(
-            groq_api_key=ai_settings.groq_api_key,
-            model_name=ai_settings.GROQ_FAST_MODEL,
+            api_key=convert_to_secret_str(ai_settings.groq_api_key),
+            stop_sequences=None,
+            model=ai_settings.GROQ_FAST_MODEL,
             temperature=0.0,
             max_tokens=1,
-            request_timeout=ai_settings.GROQ_TIMEOUT_SECONDS,
+            timeout=ai_settings.GROQ_TIMEOUT_SECONDS,
         )
     except Exception as exc:  # noqa: BLE001
         return CheckResult(

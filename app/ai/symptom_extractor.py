@@ -64,15 +64,17 @@ def _is_complex_text(text: str) -> bool:
 
 def _llm_extract_symptoms_sync(text: str) -> List[str]:
     try:
+        from langchain_core.utils import convert_to_secret_str
         from langchain_groq import ChatGroq
         from langchain_core.messages import HumanMessage, SystemMessage
 
         llm = ChatGroq(
             model=ai_settings.SYMPTOM_EXTRACTION_MODEL,
-            api_key=ai_settings.groq_api_key,
+            api_key=convert_to_secret_str(ai_settings.groq_api_key),
+            stop_sequences=None,
             temperature=0.0,
             max_tokens=128,
-            request_timeout=ai_settings.SYMPTOM_EXTRACTION_TIMEOUT,
+            timeout=ai_settings.SYMPTOM_EXTRACTION_TIMEOUT,
         )
 
         messages = [
@@ -93,7 +95,7 @@ def _llm_extract_symptoms_sync(text: str) -> List[str]:
         if isinstance(result, str):
             raw_text = result
         elif hasattr(result, "content"):
-            raw_text = result.content
+            raw_text = str(result.content)
         elif isinstance(result, dict):
             for key in ("text", "output", "content", "response"):
                 if key in result and isinstance(result[key], str):

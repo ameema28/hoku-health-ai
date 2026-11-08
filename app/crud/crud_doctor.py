@@ -40,7 +40,7 @@ def get_doctors_by_specialty(db: Session, specialty: str) -> List[Doctor]:
             .where(Doctor.is_available == True)  # noqa: E712
             .order_by(Doctor.experience_years.desc())
         )
-        result = db.execute(stmt).scalars().all()
+        result = list(db.execute(stmt).scalars().all())
         logger.info(
             "Retrieved %d available doctors for specialty='%s'",
             len(result),
@@ -118,7 +118,7 @@ def get_doctor_availability(
         stmt = stmt.order_by(
             DoctorAvailability.day_of_week, DoctorAvailability.start_time
         )
-        result = db.execute(stmt).scalars().all()
+        result = list(db.execute(stmt).scalars().all())
         logger.info(
             "Retrieved %d availability slots for doctor_id=%d (include_booked=%s)",
             len(result),
