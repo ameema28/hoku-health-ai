@@ -27,7 +27,6 @@ when Locust is not installed.
 
 from __future__ import annotations
 
-import datetime
 import json
 import os
 import statistics
@@ -36,18 +35,20 @@ from typing import Any, Dict, List, Tuple
 from unittest.mock import MagicMock, patch
 
 import pytest
-from jose import jwt
 
 CONCURRENCY = 50
 NFR02_CEILING_SECONDS = 4.0
 
 
 # ---------------------------------------------------------------------------
-# Shared token helper (mirrors token_gen.py)
+# Shared token helper (same claims as /api/auth/login and dev_token.py)
 # ---------------------------------------------------------------------------
 def _make_token(user_id: int) -> str:
     """
     Mint a Bearer token for a synthetic load-test user.
+
+    The user row must exist and be an active patient in the target database
+    (the pytest path below creates them; for Locust, create them first).
 
     Args:
         user_id: The subject id.
@@ -55,18 +56,9 @@ def _make_token(user_id: int) -> str:
     Returns:
         str: ``Bearer <jwt>``.
     """
-    from app.core.config import settings
+    from app.core.security import create_access_token
 
-    token = jwt.encode(
-        {
-            "sub": str(user_id),
-            "id": user_id,
-            "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=2),
-        },
-        settings.SECRET_KEY,
-        algorithm=settings.ALGORITHM,
-    )
-    return f"Bearer {token}"
+    return f"Bearer {create_access_token(user_id, 'patient')}"
 
 
 def _mock_chain_return() -> Dict[str, str]:
@@ -112,6 +104,22 @@ async def test_50_concurrent_users() -> None:
     engine = create_engine(db_url, connect_args=connect_args)
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     Base.metadata.create_all(bind=engine)
+
+    from app.core.security import unusable_password_hash
+    from app.models.user import User
+
+    with SessionLocal() as seed_session:
+        for uid in range(1, CONCURRENCY + 1):
+            if seed_session.get(User, uid) is None:
+                seed_session.add(
+                    User(
+                        id=uid,
+                        email=f"load{uid}@test.hoku.invalid",
+                        hashed_password=unusable_password_hash(),
+                        role="patient",
+                    )
+                )
+        seed_session.commit()
 
     def _override_get_db():
         session = SessionLocal()

@@ -1,20 +1,6 @@
-import datetime
-from jose import jwt
-from app.core.config import settings
+"""Kept for the documented command; see app/scripts/dev_token.py (needs --email)."""
 
-
-def gen_token(i: int) -> str:
-    return jwt.encode(
-        {"sub": str(i), "id": i, "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=2)},
-        settings.SECRET_KEY,
-        algorithm=settings.ALGORITHM,
-    )
-
-
-def main() -> None:
-    for i in (1, 2):
-        print("Bearer " + gen_token(i))
-
+from app.scripts.dev_token import main
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
