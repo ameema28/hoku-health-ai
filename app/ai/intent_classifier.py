@@ -26,17 +26,16 @@ import time
 from enum import Enum
 from typing import Any, Dict, Optional, Tuple
 
-# LangChain imports at module level (required for test patching)
+from langchain_core.output_parsers import StrOutputParser
+
 try:
-    from langchain.chains import LLMChain
     from langchain_groq import ChatGroq
 
     LANGCHAIN_AVAILABLE = True
 except ImportError as _import_exc:
     LANGCHAIN_AVAILABLE = False
     ChatGroq = None  # type: ignore
-    LLMChain = None  # type: ignore
-    logging.getLogger(__name__).warning("LangChain/Groq not installed: %s", _import_exc)
+    logging.getLogger(__name__).warning("langchain-groq not installed: %s", _import_exc)
 
 from app.ai.config import ai_settings
 from app.ai.prompts import intent_classification_prompt_template
@@ -110,18 +109,13 @@ class IntentClassifier:
 
     @property
     def chain(self) -> Any:
-        """Build LLMChain with intent classification prompt."""
+        """``intent prompt | fast LLM | StrOutputParser()``, built once."""
         if self._chain is None:
-            if LLMChain is None:
-                logger.error("LLMChain not available for intent classification")
-                return None
             if self.llm is None:
                 logger.error("Intent LLM not available, cannot build chain")
                 return None
-            self._chain = LLMChain(
-                llm=self.llm,
-                prompt=intent_classification_prompt_template,
-                verbose=False,
+            self._chain = (
+                intent_classification_prompt_template | self.llm | StrOutputParser()
             )
             logger.info("Intent classification chain built")
         return self._chain
@@ -131,7 +125,7 @@ class IntentClassifier:
         Classify the intent of a user message asynchronously.
 
         Steps:
-        1. Run LLMChain in thread pool (asyncio.to_thread) to avoid
+        1. Run the chain in thread pool (asyncio.to_thread) to avoid
            blocking the event loop.
         2. Parse JSON output for intent label and confidence score.
         3. Validate against known IntentEnum values.

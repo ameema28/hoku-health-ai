@@ -375,11 +375,11 @@ class EmergencyDetector:
         """
         Build the Tier 2 emergency detection LLM chain.
 
-        This helper exists so tests can patch the chain creation and
-        the production code can build a valid LangChain LLMChain.
+        ``PromptTemplate("{text}") | ChatGroq | StrOutputParser()``. This
+        helper exists so tests can patch the chain creation.
         """
         try:
-            from langchain.chains import LLMChain
+            from langchain_core.output_parsers import StrOutputParser
             from langchain_core.prompts import PromptTemplate
             from langchain_groq import ChatGroq
 
@@ -391,7 +391,7 @@ class EmergencyDetector:
                 request_timeout=ai_settings.EMERGENCY_CHECK_TIMEOUT,
             )
             prompt = PromptTemplate(template="{text}", input_variables=["text"])
-            return LLMChain(llm=llm, prompt=prompt, verbose=False)
+            return prompt | llm | StrOutputParser()
         except Exception as exc:
             logger.warning("Unable to build Tier 2 emergency chain: %s", exc)
             return None

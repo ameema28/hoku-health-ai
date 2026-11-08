@@ -13,7 +13,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from langchain.memory import ConversationBufferMemory
 from langchain_core.messages import AIMessage, HumanMessage
 
 from app.ai.memory import HokuConversationMemory
@@ -34,12 +33,6 @@ def mock_db():
     return MagicMock()
 
 
-@pytest.fixture
-def mock_memory():
-    memory = ConversationBufferMemory(memory_key="history", input_key="message")
-    return memory
-
-
 class TestHokuConversationMemory:
     def test_load_memory_correct_message_count(self, memory_manager, mock_db):
         """Test that memory loads exactly the configured number of past messages."""
@@ -55,9 +48,9 @@ class TestHokuConversationMemory:
             return_value=mock_entries,
         ):
             memory = memory_manager.load_memory(user_id=1, db=mock_db)
-            assert isinstance(memory, ConversationBufferMemory)
+            assert isinstance(memory, list)
             # 10 turns = 20 messages (10 human + 10 ai) in the chat memory
-            assert len(memory.chat_memory.messages) == 20
+            assert len(memory) == 20
 
     def test_load_memory_empty_history_new_user(self, memory_manager, mock_db):
         """Test that a new user with no history gets empty memory."""
@@ -66,8 +59,8 @@ class TestHokuConversationMemory:
             return_value=[],
         ):
             memory = memory_manager.load_memory(user_id=999, db=mock_db)
-            assert isinstance(memory, ConversationBufferMemory)
-            assert memory.chat_memory.messages == []
+            assert isinstance(memory, list)
+            assert memory == []
 
     def test_per_user_isolation(self, memory_manager, mock_db):
         """Test that user A cannot see user B's chat history."""
@@ -88,8 +81,8 @@ class TestHokuConversationMemory:
             memory_b = memory_manager.load_memory(user_id=2, db=mock_db)
 
             # Extract all message contents for verification
-            contents_a = [msg.content for msg in memory_a.chat_memory.messages]
-            contents_b = [msg.content for msg in memory_b.chat_memory.messages]
+            contents_a = [msg.content for msg in memory_a]
+            contents_b = [msg.content for msg in memory_b]
 
             assert any("User A" in c for c in contents_a)
             assert any("User B" in c for c in contents_b)
@@ -107,22 +100,19 @@ class TestHokuConversationMemory:
         ):
             memory = memory_manager.load_memory(user_id=1, db=mock_db)
             # Should only have the complete turn (1 human + 1 ai = 2 messages)
-            assert len(memory.chat_memory.messages) == 2
-            contents = [msg.content for msg in memory.chat_memory.messages]
+            assert len(memory) == 2
+            contents = [msg.content for msg in memory]
             assert any("Complete" in c for c in contents)
             assert not any("Incomplete" in c for c in contents)
 
     def test_load_memory_returns_message_objects(self, memory_manager, mock_db):
-        """Test that load_memory returns return_messages=True format
-        for MessagesPlaceholder compatibility."""
+        """load_memory returns BaseMessage objects, as MessagesPlaceholder needs."""
         entry = MagicMock(message="Hello", ai_response="Hi there")
         with patch(
             "app.ai.memory.get_recent_chat_history",
             return_value=[entry],
         ):
-            memory = memory_manager.load_memory(user_id=1, db=mock_db)
-            vars_dict = memory.load_memory_variables({"message": "test"})
-            history = vars_dict.get("history", [])
+            history = memory_manager.load_memory(user_id=1, db=mock_db)
             # MessagesPlaceholder expects a list of BaseMessage objects
             assert isinstance(history, list)
             assert len(history) == 2

@@ -39,17 +39,17 @@ try:
 except Exception:
     _MagicMock = None
 
-# LangChain imports at module level (required for test patching)
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.output_parsers import StrOutputParser
+
 try:
-    from langchain.chains import LLMChain
     from langchain_groq import ChatGroq
 
     LANGCHAIN_AVAILABLE = True
 except ImportError as _import_exc:
     LANGCHAIN_AVAILABLE = False
     ChatGroq = None  # type: ignore
-    LLMChain = None  # type: ignore
-    logging.getLogger(__name__).warning("LangChain/Groq not installed: %s", _import_exc)
+    logging.getLogger(__name__).warning("langchain-groq not installed: %s", _import_exc)
 
 from app.ai.caching import ResponseCache  # Day 8: In-memory response cache
 from app.ai.config import ai_settings
@@ -93,7 +93,7 @@ class HokuChatbot:
     """
     Hoku Health Care AI Chatbot.
 
-    Uses Groq via LangChain LLMChain:
+    Uses Groq via LangChain runnables (prompt | ChatGroq | StrOutputParser):
     - Fast model (llama-3.1-8b-instant): Intent classification (Day 4).
     - Main model (llama-3.3-70b-versatile): Patient-facing response.
 
@@ -225,17 +225,22 @@ class HokuChatbot:
             self._llm_factory = LLMFactory()
         return self._llm_factory
 
+    def _generation_chain(self, prompt: Any) -> Any:
+        """
+        ``prompt | main LLM | StrOutputParser()``: the single seam tests patch.
+
+        ``invoke`` takes the prompt variables (including ``history`` as a
+        list of messages) and returns the model's text.
+        """
+        if self.main_llm is None:
+            raise RuntimeError("Main LLM not available (check GROQ_API_KEY)")
+        return prompt | self.main_llm | StrOutputParser()
+
     def build_chain(self) -> Any:
-        """Build LLMChain with the default system prompt and main model."""
+        """Build (once) the default chat chain; used for warm-up."""
         if self._chain is None:
-            if LLMChain is None:
-                raise RuntimeError("LLMChain not available")
-            if self.main_llm is None:
-                raise RuntimeError("Main LLM not available (check GROQ_API_KEY)")
-            self._chain = LLMChain(
-                llm=self.main_llm, prompt=chat_prompt_template, verbose=False
-            )
-            logger.info("LLMChain built with model=%s", self.main_model)
+            self._chain = self._generation_chain(chat_prompt_template)
+            logger.info("Chat chain built with model=%s", self.main_model)
         return self._chain
 
     def _build_intent_context(self, intent: IntentEnum) -> str:
@@ -481,15 +486,13 @@ class HokuChatbot:
             optimizer.enforce_budget("intent_classify", intent_start)
             return intent, confidence
 
-        async def _load_memory_task() -> Tuple[Any, List[Any], float]:
+        async def _load_memory_task() -> Tuple[List[Any], float]:
             memory_start = time.perf_counter()
             memory_manager = HokuConversationMemory(
                 message_limit=ai_settings.MEMORY_MESSAGE_LIMIT,
                 max_history_tokens=ai_settings.MEMORY_MAX_TOKENS,
             )
-            memory = memory_manager.load_memory(user_id=user_id, db=db)
-            memory_vars = memory.load_memory_variables({"message": message})
-            history_list = memory_vars.get("history", [])
+            history_list = memory_manager.load_memory(user_id=user_id, db=db)
             memory_elapsed = time.perf_counter() - memory_start
             logger.info(
                 "Memory loaded for user_id=%s in %.3fs (%d messages)",
@@ -498,7 +501,7 @@ class HokuChatbot:
                 len(history_list),
             )
             optimizer.enforce_budget("memory_load", memory_start)
-            return memory, history_list, memory_elapsed
+            return history_list, memory_elapsed
 
         async def _rag_lookup_task() -> str:
             rag_start = time.perf_counter()
@@ -541,16 +544,15 @@ class HokuChatbot:
         else:
             intent, confidence = intent_result
 
+        history_list: List[Any]
         if isinstance(memory_result, Exception):
-            logger.warning("Memory load failed: %s", memory_result)
-            memory_manager = HokuConversationMemory(
-                message_limit=ai_settings.MEMORY_MESSAGE_LIMIT,
-                max_history_tokens=ai_settings.MEMORY_MAX_TOKENS,
+            logger.warning(
+                "Memory load failed (%s); continuing without history",
+                type(memory_result).__name__,
             )
-            memory = memory_manager.load_memory(user_id=user_id, db=db)
             history_list = []
         else:
-            memory, history_list, memory_elapsed = memory_result
+            history_list, memory_elapsed = memory_result
 
         concurrent_elapsed = time.perf_counter() - concurrent_start
         logger.info(
@@ -708,18 +710,17 @@ class HokuChatbot:
 
         try:
             compressed_history = compress_prompt(history_list, max_messages=3)
-            self._apply_compressed_history(memory, compressed_history)
+            history = self._apply_compressed_history(history_list, compressed_history)
 
             prompt_template = (
                 rag_chat_prompt_template if use_rag else chat_prompt_template
             )
-            chain = LLMChain(
-                llm=self.main_llm, prompt=prompt_template, memory=memory, verbose=False
-            )
+            chain = self._generation_chain(prompt_template)
 
-            invoke_input: Dict[str, str] = {
+            invoke_input: Dict[str, Any] = {
                 "message": message,
                 "context": intent_context,
+                "history": history,
             }
             if use_rag:
                 invoke_input["faq_context"] = faq_context
@@ -895,18 +896,18 @@ class HokuChatbot:
             return fallback
 
     @staticmethod
-    def _apply_compressed_history(memory: Any, compressed_history: Any) -> None:
+    def _apply_compressed_history(
+        history: List[BaseMessage], compressed_history: Any
+    ) -> List[BaseMessage]:
         """
-        Push compressed history back into the memory buffer the chain reads.
+        Return the history to send to the prompt.
+
+        Uses ``compressed_history`` (dicts with role/content, or message
+        objects) when every entry is recognised; otherwise the original
+        ``history`` is returned unchanged.
         """
         if not compressed_history or not isinstance(compressed_history, list):
-            return
-
-        try:
-            from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-        except ImportError:
-            logger.debug("langchain_core unavailable; skipping history compression")
-            return
+            return history
 
         role_map = {
             "user": HumanMessage,
@@ -916,42 +917,29 @@ class HokuChatbot:
             "system": SystemMessage,
         }
 
-        rebuilt: List[Any] = []
+        rebuilt: List[BaseMessage] = []
         for item in compressed_history:
             if isinstance(item, dict):
                 message_cls = role_map.get(str(item.get("role", "")).lower())
                 content = item.get("content", "")
                 if message_cls is None or not isinstance(content, str):
                     logger.debug(
-                        "Unrecognised compressed message role=%r; aborting compression",
+                        "Unrecognised compressed message role=%r; using full history",
                         item.get("role"),
                     )
-                    return
+                    return history
                 rebuilt.append(message_cls(content=content))
-            elif hasattr(item, "content"):
+            elif isinstance(item, BaseMessage):
                 rebuilt.append(item)
             else:
                 logger.debug(
-                    "Unrecognised compressed message type %s; aborting", type(item)
+                    "Unrecognised compressed message type %s; using full history",
+                    type(item),
                 )
-                return
+                return history
 
-        try:
-            chat_memory = getattr(memory, "chat_memory", None)
-            if chat_memory is None or not hasattr(chat_memory, "messages"):
-                return
-            if _MagicMock is not None and isinstance(chat_memory, _MagicMock):
-                return
-
-            before = len(chat_memory.messages)
-            chat_memory.messages = rebuilt
-            logger.info(
-                "Compressed history applied to memory buffer: %d -> %d messages",
-                before,
-                len(rebuilt),
-            )
-        except Exception as exc:
-            logger.debug("Could not apply compressed history: %s", exc)
+        logger.info("Compressed history: %d -> %d messages", len(history), len(rebuilt))
+        return rebuilt
 
     @staticmethod
     def _extract_text_from_result(result: Any) -> str:

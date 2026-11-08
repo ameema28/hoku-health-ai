@@ -40,7 +40,7 @@ def classifier(mock_settings):
 
 @pytest.fixture
 def mock_chain():
-    """Mock LLMChain that returns predictable intent responses."""
+    """Mock intent chain that returns predictable intent responses."""
     chain = MagicMock()
 
     def mock_invoke(inputs):

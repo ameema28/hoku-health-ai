@@ -1,9 +1,9 @@
 """
 Hoku Health Care - Conversation Memory Management (Day 4).
 
-Per-user conversation memory using LangChain 0.2.6 ConversationBufferMemory.
-Loads recent chat history from PostgreSQL/SQLite and converts to LangChain
-message format for context-aware multi-turn conversations.
+Per-user conversation memory: loads recent chat history from the database
+and returns it as LangChain messages, which the chat prompt receives through
+its ``history`` MessagesPlaceholder.
 
 Day 4 update:
 - save_memory now accepts intent parameter for analytics
@@ -13,7 +13,6 @@ import logging
 import time
 from typing import List, Optional
 
-from langchain.memory import ConversationBufferMemory
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from sqlalchemy.orm import Session
 
@@ -27,8 +26,8 @@ class HokuConversationMemory:
     """
     Manages per-user conversation memory for the Hoku AI chatbot.
 
-    Why ConversationBufferMemory over SummaryMemory?
-    - ConversationBufferMemory preserves exact wording of previous turns,
+    Why a verbatim message buffer over summarised memory?
+    - A verbatim buffer preserves exact wording of previous turns,
       which is critical for clinical accuracy (symptom descriptions must
       not be paraphrased or lost).
     - SummaryMemory compresses history, risking loss of nuanced symptom
@@ -67,25 +66,23 @@ class HokuConversationMemory:
         self,
         user_id: int,
         db: Session,
-    ) -> ConversationBufferMemory:
+    ) -> List[BaseMessage]:
         """
-        Load conversation memory for a specific user from the database.
+        Load conversation history for a specific user from the database.
 
         Steps:
         1. Fetch last N complete turns from chat_history (ai_response NOT NULL).
-        2. Reverse to chronological order (oldest first for memory buildup).
+        2. Reverse to chronological order (oldest first).
         3. Convert DB records to LangChain HumanMessage/AIMessage pairs.
         4. Trim to token budget if needed (oldest messages dropped first).
-        5. Inject into ConversationBufferMemory with return_messages=True
-           for MessagesPlaceholder compatibility.
 
         Args:
             user_id: The authenticated user's database ID.
             db: SQLAlchemy database session.
 
         Returns:
-            ConversationBufferMemory: LangChain memory object ready for
-                injection into LLMChain via MessagesPlaceholder.
+            List[BaseMessage]: chronological history, passed to the prompt
+                as the ``history`` variable.
         """
         memory_start = time.perf_counter()
 
@@ -113,22 +110,6 @@ class HokuConversationMemory:
             max_tokens=self.max_history_tokens,
         )
 
-        # Build ConversationBufferMemory with return_messages=True.
-        # This returns BaseMessage objects that MessagesPlaceholder
-        # injects cleanly into ChatPromptTemplate (langchain 0.2.6).
-        memory = ConversationBufferMemory(
-            memory_key="history",
-            input_key="message",
-            return_messages=True,
-        )
-
-        # Manually populate the chat memory from DB records
-        for msg in trimmed_messages:
-            if isinstance(msg, HumanMessage):
-                memory.chat_memory.add_user_message(msg.content)
-            elif isinstance(msg, AIMessage):
-                memory.chat_memory.add_ai_message(msg.content)
-
         memory_elapsed = time.perf_counter() - memory_start
         token_count = self._estimate_token_count(trimmed_messages)
 
@@ -140,7 +121,7 @@ class HokuConversationMemory:
             memory_elapsed,
         )
 
-        return memory
+        return list(trimmed_messages)
 
     def save_memory(
         self,

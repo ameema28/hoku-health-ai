@@ -78,7 +78,7 @@ def _llm_payload(reply: str, **overrides: Any) -> Dict[str, str]:
 
     Returns:
         Dict[str, str]: A dict with a single ``text`` key, matching what
-        ``LLMChain.invoke`` returns.
+        what the old ``LLMChain.invoke`` returned (still accepted by the parser).
     """
     body = {
         "reply": reply,
@@ -146,7 +146,7 @@ def test_full_chat_flow_returns_valid_schema(
         )
     )
 
-    with patch("app.ai.chatbot.LLMChain", return_value=chain):
+    with patch("app.ai.chatbot.HokuChatbot._generation_chain", return_value=chain):
         resp = client.post(
             "/api/ai/chat",
             json={"message": "I have a mild headache", "userId": USER_ID},
@@ -179,7 +179,9 @@ def test_emergency_sets_hoku_emergency_headers(
     # Emergency detection is pure regex and runs before any LLM call, so no
     # chain patch is needed - but we patch it anyway to guarantee the LLM is
     # never reached even if detection changed.
-    with patch("app.ai.chatbot.LLMChain", return_value=MagicMock()):
+    with patch(
+        "app.ai.chatbot.HokuChatbot._generation_chain", return_value=MagicMock()
+    ):
         resp = client.post(
             "/api/ai/chat",
             json={
@@ -209,7 +211,7 @@ def test_multi_turn_memory_persists(
     chain = MagicMock()
     chain.invoke = MagicMock(return_value=_llm_payload("Noted. " + SAFETY_DISCLAIMER))
 
-    with patch("app.ai.chatbot.LLMChain", return_value=chain):
+    with patch("app.ai.chatbot.HokuChatbot._generation_chain", return_value=chain):
         first = client.post(
             "/api/ai/chat",
             json={"message": "What services does Hoku offer?", "userId": USER_ID},
@@ -253,7 +255,7 @@ def test_rag_grounded_response_uses_faq_context(
         )
     )
 
-    with patch("app.ai.chatbot.LLMChain", return_value=chain):
+    with patch("app.ai.chatbot.HokuChatbot._generation_chain", return_value=chain):
         resp = client.post(
             "/api/ai/chat",
             json={"message": "Tell me about your services", "userId": USER_ID},
@@ -279,7 +281,7 @@ def test_reply_always_contains_disclaimer_even_if_llm_omits_it(
         return_value=_llm_payload("Try drinking more water throughout the day.")
     )
 
-    with patch("app.ai.chatbot.LLMChain", return_value=chain):
+    with patch("app.ai.chatbot.HokuChatbot._generation_chain", return_value=chain):
         resp = client.post(
             "/api/ai/chat",
             json={"message": "How can I stay hydrated?", "userId": USER_ID},
@@ -304,7 +306,7 @@ def test_response_time_under_nfr02_ceiling(
         return_value=_llm_payload("All good. " + SAFETY_DISCLAIMER)
     )
 
-    with patch("app.ai.chatbot.LLMChain", return_value=chain):
+    with patch("app.ai.chatbot.HokuChatbot._generation_chain", return_value=chain):
         started = time.perf_counter()
         resp = client.post(
             "/api/ai/chat",

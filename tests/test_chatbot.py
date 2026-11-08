@@ -1,7 +1,9 @@
 """
 Hoku Health Care - Chatbot Unit Tests (Day 3, hardened Day 8.1).
 
-Tests for HokuChatbot with LLMChain and conversation memory.
+Tests for HokuChatbot with its runnable chain and conversation history.
+
+The chain is patched at its one seam, ``HokuChatbot._generation_chain``.
 
 Day 8.1 hardening
 -----------------
@@ -26,12 +28,7 @@ import time
 from unittest.mock import MagicMock, PropertyMock, create_autospec, patch
 
 import pytest
-from langchain.memory import ConversationBufferMemory
-
-try:
-    from langchain.chains import LLMChain
-except ImportError:  # pragma: no cover - minimal CI image
-    LLMChain = None
+from langchain_core.messages import AIMessage, HumanMessage
 
 from app.ai.chatbot import HokuChatbot
 from app.ai.intent_classifier import IntentEnum
@@ -80,7 +77,7 @@ def _chain_invoke_spec(input, config=None, **kwargs):  # noqa: A002 - mirrors La
 
 def _make_chain_mock(return_value):
     """
-    Build an LLMChain test double whose `invoke` enforces the REAL signature.
+    Build a chain test double whose `invoke` enforces the REAL signature.
 
     Always use this instead of a bare MagicMock. A bare MagicMock accepts any
     keyword name silently, which is how the Day 8 TypeError shipped behind a
@@ -98,13 +95,13 @@ def mock_db():
 
 @pytest.fixture
 def mock_memory():
-    memory = ConversationBufferMemory(memory_key="history", input_key="message")
-    return memory
+    """load_memory now returns the history as a list of messages."""
+    return []
 
 
 @pytest.fixture
 def mock_llm_chain():
-    """Signature-enforcing LLMChain mock returning a dict with a 'text' key."""
+    """Signature-enforcing chain mock returning a dict with a 'text' key."""
     return _make_chain_mock(
         {
             "text": json.dumps(
@@ -143,7 +140,10 @@ class TestGetResponse:
     ):
         with patch("app.ai.chatbot.HokuConversationMemory") as MockMem:
             MockMem.return_value.load_memory.return_value = mock_memory
-            with patch("app.ai.chatbot.LLMChain", return_value=mock_llm_chain):
+            with patch(
+                "app.ai.chatbot.HokuChatbot._generation_chain",
+                return_value=mock_llm_chain,
+            ):
                 result = await chatbot.get_response(
                     "I have a headache", user_id=1, db=mock_db
                 )
@@ -157,7 +157,10 @@ class TestGetResponse:
     ):
         with patch("app.ai.chatbot.HokuConversationMemory") as MockMem:
             MockMem.return_value.load_memory.return_value = mock_memory
-            with patch("app.ai.chatbot.LLMChain", return_value=mock_llm_chain):
+            with patch(
+                "app.ai.chatbot.HokuChatbot._generation_chain",
+                return_value=mock_llm_chain,
+            ):
                 result = await chatbot.get_response(
                     "I have a headache", user_id=1, db=mock_db
                 )
@@ -168,7 +171,10 @@ class TestGetResponse:
     ):
         with patch("app.ai.chatbot.HokuConversationMemory") as MockMem:
             MockMem.return_value.load_memory.return_value = mock_memory
-            with patch("app.ai.chatbot.LLMChain", return_value=mock_llm_chain):
+            with patch(
+                "app.ai.chatbot.HokuChatbot._generation_chain",
+                return_value=mock_llm_chain,
+            ):
                 result = await chatbot.get_response(
                     "I have a headache", user_id=1, db=mock_db
                 )
@@ -179,7 +185,10 @@ class TestGetResponse:
     ):
         with patch("app.ai.chatbot.HokuConversationMemory") as MockMem:
             MockMem.return_value.load_memory.return_value = mock_memory
-            with patch("app.ai.chatbot.LLMChain", return_value=mock_llm_chain):
+            with patch(
+                "app.ai.chatbot.HokuChatbot._generation_chain",
+                return_value=mock_llm_chain,
+            ):
                 result = await chatbot.get_response(
                     "I have a headache", user_id=1, db=mock_db
                 )
@@ -190,7 +199,10 @@ class TestGetResponse:
     ):
         with patch("app.ai.chatbot.HokuConversationMemory") as MockMem:
             MockMem.return_value.load_memory.return_value = mock_memory
-            with patch("app.ai.chatbot.LLMChain", return_value=mock_llm_chain):
+            with patch(
+                "app.ai.chatbot.HokuChatbot._generation_chain",
+                return_value=mock_llm_chain,
+            ):
                 result = await chatbot.get_response(
                     "I have a headache", user_id=1, db=mock_db
                 )
@@ -210,7 +222,9 @@ class TestGetResponse:
         slow_chain.invoke = _slow_invoke
         with patch("app.ai.chatbot.HokuConversationMemory") as MockMem:
             MockMem.return_value.load_memory.return_value = mock_memory
-            with patch("app.ai.chatbot.LLMChain", return_value=slow_chain):
+            with patch(
+                "app.ai.chatbot.HokuChatbot._generation_chain", return_value=slow_chain
+            ):
                 chatbot.timeout = 0.01
                 result = await chatbot.get_response(
                     "I have a headache", user_id=1, db=mock_db
@@ -225,7 +239,9 @@ class TestGetResponse:
         bad_chain.invoke.side_effect = ConnectionError("Groq API error")
         with patch("app.ai.chatbot.HokuConversationMemory") as MockMem:
             MockMem.return_value.load_memory.return_value = mock_memory
-            with patch("app.ai.chatbot.LLMChain", return_value=bad_chain):
+            with patch(
+                "app.ai.chatbot.HokuChatbot._generation_chain", return_value=bad_chain
+            ):
                 result = await chatbot.get_response(
                     "I have a headache", user_id=1, db=mock_db
                 )
@@ -238,7 +254,10 @@ class TestGetResponse:
     ):
         with patch("app.ai.chatbot.HokuConversationMemory") as MockMem:
             MockMem.return_value.load_memory.return_value = mock_memory
-            with patch("app.ai.chatbot.LLMChain", return_value=mock_llm_chain):
+            with patch(
+                "app.ai.chatbot.HokuChatbot._generation_chain",
+                return_value=mock_llm_chain,
+            ):
                 start = time.perf_counter()
                 await chatbot.get_response("I have a headache", user_id=1, db=mock_db)
                 elapsed = time.perf_counter() - start
@@ -350,7 +369,10 @@ class TestIntentFields:
     ):
         with patch("app.ai.chatbot.HokuConversationMemory") as MockMem:
             MockMem.return_value.load_memory.return_value = mock_memory
-            with patch("app.ai.chatbot.LLMChain", return_value=mock_llm_chain):
+            with patch(
+                "app.ai.chatbot.HokuChatbot._generation_chain",
+                return_value=mock_llm_chain,
+            ):
                 with patch.object(
                     chatbot.intent_classifier,
                     "classify_intent",
@@ -404,7 +426,10 @@ class TestChainInvokeContract:
     ):
         with patch("app.ai.chatbot.HokuConversationMemory") as MockMem:
             MockMem.return_value.load_memory.return_value = mock_memory
-            with patch("app.ai.chatbot.LLMChain", return_value=mock_llm_chain):
+            with patch(
+                "app.ai.chatbot.HokuChatbot._generation_chain",
+                return_value=mock_llm_chain,
+            ):
                 await chatbot.get_response("I have a headache", user_id=1, db=mock_db)
 
         assert mock_llm_chain.invoke.called, "chain.invoke was never reached"
@@ -415,6 +440,7 @@ class TestChainInvokeContract:
         payload = call_args[0]
         assert isinstance(payload, dict)
         assert "message" in payload and "context" in payload
+        assert isinstance(payload["history"], list)  # explicit history, no memory
 
         # The exact keyword that broke production must never reappear.
         assert "invoke_input" not in call_kwargs
@@ -535,41 +561,35 @@ class TestResponseCacheKeys:
 
 
 class TestCompressedHistoryApplication:
-    """Day 8.1 guard: compress_prompt returns dicts, memory stores objects."""
+    """Day 8.1 guard: compress_prompt returns dicts, the prompt needs messages."""
 
     def test_dict_history_is_converted_and_applied(self):
-        from langchain_core.messages import AIMessage, HumanMessage
-
-        from app.ai.chatbot import HokuChatbot
-
-        memory = ConversationBufferMemory(memory_key="history", input_key="message")
-        memory.chat_memory.add_user_message("old one")
-        memory.chat_memory.add_ai_message("old two")
-        memory.chat_memory.add_user_message("old three")
-
+        history = [
+            HumanMessage(content="old one"),
+            AIMessage(content="old two"),
+            HumanMessage(content="old three"),
+        ]
         compressed = [
             {"role": "user", "content": "kept question"},
             {"role": "assistant", "content": "kept answer"},
         ]
-        HokuChatbot._apply_compressed_history(memory, compressed)
+        messages = HokuChatbot._apply_compressed_history(history, compressed)
 
-        messages = memory.chat_memory.messages
-        assert len(messages) == 2, "compression was not applied to the buffer"
+        assert len(messages) == 2, "compression was not applied"
         assert isinstance(messages[0], HumanMessage)
         assert isinstance(messages[1], AIMessage)
         assert messages[0].content == "kept question"
 
-    def test_unrecognised_shape_leaves_buffer_untouched(self):
-        from app.ai.chatbot import HokuChatbot
-
-        memory = ConversationBufferMemory(memory_key="history", input_key="message")
-        memory.chat_memory.add_user_message("must survive")
-
-        HokuChatbot._apply_compressed_history(
-            memory, [{"role": "martian", "content": "x"}]
+    def test_unrecognised_shape_keeps_full_history(self):
+        history = [HumanMessage(content="must survive")]
+        result = HokuChatbot._apply_compressed_history(
+            history, [{"role": "martian", "content": "x"}]
         )
-        assert len(memory.chat_memory.messages) == 1
-        assert memory.chat_memory.messages[0].content == "must survive"
+        assert result == history
+
+    def test_empty_compression_keeps_full_history(self):
+        history = [HumanMessage(content="must survive")]
+        assert HokuChatbot._apply_compressed_history(history, []) == history
 
 
 class TestPerformanceBudgets:

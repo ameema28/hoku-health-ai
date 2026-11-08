@@ -133,7 +133,7 @@ async def test_50_concurrent_users() -> None:
 
     # Import the app lazily so the setting patch below is applied first.
     with patch("app.core.config.settings.RATE_LIMIT_ENABLED", False), patch(
-        "app.ai.chatbot.LLMChain", return_value=chain
+        "app.ai.chatbot.HokuChatbot._generation_chain", return_value=chain
     ):
         from app.main import app
 

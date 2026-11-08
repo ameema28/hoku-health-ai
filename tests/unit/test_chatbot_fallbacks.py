@@ -26,11 +26,9 @@ def mock_db() -> MagicMock:
 
 
 @pytest.fixture
-def mock_memory() -> MagicMock:
-    """Empty conversation memory so no history is loaded."""
-    from langchain.memory import ConversationBufferMemory
-
-    return ConversationBufferMemory(memory_key="history", input_key="message")
+def mock_memory() -> list:
+    """Empty conversation history (load_memory returns a list of messages)."""
+    return []
 
 
 class TestChatbotFallbackPaths:
@@ -71,7 +69,7 @@ class TestChatbotFallbackPaths:
         chain.invoke = MagicMock(return_value=None)
 
         with patch("app.ai.chatbot.HokuConversationMemory") as MockMem, patch(
-            "app.ai.chatbot.LLMChain", return_value=chain
+            "app.ai.chatbot.HokuChatbot._generation_chain", return_value=chain
         ), patch("app.ai.chatbot.generate_with_timeout", return_value=None):
             MockMem.return_value.load_memory.return_value = mock_memory
             result = await bot.get_response("General question", user_id=1, db=mock_db)
@@ -91,7 +89,7 @@ class TestChatbotFallbackPaths:
         )
 
         with patch("app.ai.chatbot.HokuConversationMemory") as MockMem, patch(
-            "app.ai.chatbot.LLMChain", return_value=chain
+            "app.ai.chatbot.HokuChatbot._generation_chain", return_value=chain
         ):
             MockMem.return_value.load_memory.return_value = mock_memory
             result = await bot.get_response("Any tips?", user_id=1, db=mock_db)
