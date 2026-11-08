@@ -216,10 +216,12 @@ def main() -> None:
     rag.create_vector_store()
 
     logger.info("Seeding %d FAQ entries...", len(FAQS))
-    added = rag.add_faq_documents(FAQS)
+    added, skipped = rag.upsert_faq_documents(FAQS)
 
-    logger.info("Done. %d FAQ documents added to the Hoku knowledge base.", added)
-    print(f"Seeded {added} FAQ entries into '{rag.collection_name}'.")
+    print(
+        f"Seeded {added} FAQ entries into '{rag.collection_name}' "
+        f"({skipped} already present)."
+    )
 
 
 if __name__ == "__main__":

@@ -17,7 +17,7 @@ import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 import bcrypt
 from fastapi import Depends, HTTPException, status
@@ -219,3 +219,31 @@ async def get_current_user(
         )
         raise _unauthorized()
     return user_to_principal(user)
+
+
+def require_roles(*roles: str) -> Callable[..., Any]:
+    """
+    Dependency factory: the current user, or 403 if their role is not allowed.
+
+    No/invalid token still fails with 401 inside ``get_current_user``.
+    """
+    unknown = set(roles) - set(ROLES)
+    if not roles or unknown:
+        raise ValueError("require_roles needs one or more known roles")
+
+    async def _require(
+        current_user: Dict[str, Any] = Depends(get_current_user),
+    ) -> Dict[str, Any]:
+        if current_user.get("role") not in roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient permissions",
+            )
+        return current_user
+
+    return _require
+
+
+#: Shared dependencies (one instance each, so tests can override them).
+require_patient_or_admin = require_roles("patient", "admin")
+require_admin = require_roles("admin")

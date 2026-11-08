@@ -81,6 +81,10 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     #: Master switch for the /metrics Prometheus endpoint.
     METRICS_ENABLED: bool = True
+    #: Scrape token for /metrics ("Authorization: Bearer <token>"). When
+    #: unset, /metrics is open only in ENVIRONMENT test/development and
+    #: returns 404 everywhere else.
+    METRICS_TOKEN: str = ""
 
     # ------------------------------------------------------------------
     # Day 10: Rate limiting (POST /api/ai/chat)

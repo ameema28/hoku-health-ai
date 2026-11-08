@@ -18,6 +18,7 @@ the real `vector` column type automatically (see _USE_PGVECTOR_COLUMN
 below), no code changes needed.
 """
 
+import hashlib
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -48,16 +49,27 @@ _USE_PGVECTOR_COLUMN = PGVECTOR_AVAILABLE and settings.DATABASE_URL.startswith(
 )
 
 
+def faq_content_hash(question: str) -> str:
+    """sha256 hex of the stripped FAQ question: the seeding de-duplication key."""
+    return hashlib.sha256(question.strip().encode("utf-8")).hexdigest()
+
+
 class VectorStore(Base):
     """A single embedded FAQ entry in the Hoku Health Care knowledge base."""
 
     __tablename__ = "vector_store"
-    __table_args__ = (Index("ix_vector_store_category", "category"),)
+    __table_args__ = (
+        Index("ix_vector_store_category", "category"),
+        Index("ux_vector_store_content_hash", "content_hash", unique=True),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
 
     # The FAQ text (question+answer combined) that was embedded.
     content: Mapped[str] = mapped_column(String, nullable=False)
+
+    # faq_content_hash(question); unique, so seeding the same FAQ twice is a no-op.
+    content_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
     # 384-dim embedding produced by sentence-transformers/all-MiniLM-L6-v2.
     # JSON on SQLite (your current setup); native `vector` type on Postgres

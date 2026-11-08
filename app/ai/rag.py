@@ -26,7 +26,7 @@ Design notes:
 import logging
 import time
 from contextlib import contextmanager
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from langchain_core.documents import Document
 from sqlalchemy import select
@@ -35,7 +35,7 @@ from sqlalchemy.orm import Session
 from app.ai.embeddings import EmbeddingManager
 from app.core.config import settings
 from app.core.database import SessionLocal, engine
-from app.models.vector_store import PGVECTOR_AVAILABLE, VectorStore
+from app.models.vector_store import PGVECTOR_AVAILABLE, VectorStore, faq_content_hash
 
 logger = logging.getLogger(__name__)
 
@@ -134,26 +134,51 @@ class HokuRAG:
 
     def add_faq_documents(self, faqs: List[Dict[str, Any]]) -> int:
         """
-        Embed and store a batch of FAQ entries.
+        Embed and store FAQ entries that are not stored yet.
 
         Args:
             faqs: List of dicts with "question", "answer", and "category" keys.
 
         Returns:
-            int: Number of documents added.
+            int: Number of documents added (already-stored questions are skipped).
         """
-        added = 0
-        for faq in faqs:
+        return self.upsert_faq_documents(faqs)[0]
+
+    def upsert_faq_documents(self, faqs: List[Dict[str, Any]]) -> Tuple[int, int]:
+        """
+        Embed and store FAQ entries, skipping questions already stored.
+
+        A question is identified by ``faq_content_hash`` (sha256 of the
+        stripped question), backed by a unique index, so re-seeding never
+        duplicates rows. Skipped entries are not embedded.
+
+        Returns:
+            Tuple[int, int]: ``(added, skipped)``.
+        """
+        hashes = [faq_content_hash(faq.get("question", "")) for faq in faqs]
+        existing = set(
+            self._db.scalars(
+                select(VectorStore.content_hash).where(
+                    VectorStore.content_hash.in_(hashes)
+                )
+            )
+        )
+
+        added = skipped = 0
+        for faq, digest in zip(faqs, hashes):
+            if digest in existing:
+                skipped += 1
+                continue
+            existing.add(digest)  # also de-duplicates within one batch
             question = faq.get("question", "")
             answer = faq.get("answer", "")
             category = faq.get("category", "general")
             content = f"Q: {question}\nA: {answer}"
 
-            embedding = self.embedding_manager.get_embedding(content)
-
             row = VectorStore(
                 content=content,
-                embedding=embedding,
+                content_hash=digest,
+                embedding=self.embedding_manager.get_embedding(content),
                 doc_metadata={
                     "question": question,
                     "answer": answer,
@@ -165,8 +190,13 @@ class HokuRAG:
             added += 1
 
         self._db.commit()
-        logger.info("Added %d FAQ documents to '%s'", added, self.collection_name)
-        return added
+        logger.info(
+            "FAQ seeding into '%s': %d added, %d already present",
+            self.collection_name,
+            added,
+            skipped,
+        )
+        return added, skipped
 
     # ------------------------------------------------------------------
     # Retrieval

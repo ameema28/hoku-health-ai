@@ -28,7 +28,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from fastapi import (
     APIRouter,
@@ -44,7 +44,8 @@ from sqlalchemy.orm import Session
 
 from app.ai.rag import HokuRAG
 from app.core.config import settings
-from app.core.dependencies import get_current_user, get_db
+from app.core.dependencies import get_db
+from app.core.security import require_admin, require_patient_or_admin
 from app.core.exceptions import UserNotFoundException
 from app.core.monitoring import get_metrics
 from app.core.rate_limit import RateLimitExceeded, get_chat_rate_limiter
@@ -183,7 +184,7 @@ _ERROR_RESPONSES: Dict[int, Dict[str, Any]] = {
 async def enforce_chat_rate_limit(
     request: Request,
     response: Response,
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(require_patient_or_admin),
 ) -> Dict[str, Any]:
     """
     Enforce the per-user sliding-window rate limit for the chat endpoint.
@@ -444,7 +445,7 @@ async def get_chat_history(
     ),
     skip: int = Query(0, ge=0, description="Pagination offset", example=0),
     db: Session = Depends(get_db),
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(require_patient_or_admin),
 ) -> ChatSessionResponse:
     """
     Retrieve chat history for the authenticated user, chronologically.
@@ -536,19 +537,21 @@ async def health_check() -> Dict[str, str]:
     tags=["RAG (admin)"],
     description="Triggers seeding of the Hoku Health Care FAQ knowledge base into pgvector.",
 )
-async def seed_rag(db: Session = Depends(get_db)) -> Dict[str, Any]:
+async def seed_rag(
+    db: Session = Depends(get_db),
+    _admin: Dict[str, Any] = Depends(require_admin),
+) -> Dict[str, Any]:
     """
-    Trigger FAQ seeding into the vector store.
+    Trigger FAQ seeding into the vector store (admin only).
 
-    Intended for admin/dev use during setup -- not part of the patient
-    chat flow. Not idempotent: each call adds another copy of the FAQ set
-    unless the collection is cleared first.
+    Idempotent: FAQs whose question is already stored (by content hash)
+    are skipped, so repeated calls do not duplicate the collection.
 
     Args:
         db: Injected database session.
 
     Returns:
-        Dict[str, Any]: Count of documents added and the collection name.
+        Dict[str, Any]: Documents added and skipped, and the collection name.
 
     Raises:
         HTTPException: 500 if seeding fails.
@@ -557,16 +560,17 @@ async def seed_rag(db: Session = Depends(get_db)) -> Dict[str, Any]:
 
     try:
 
-        def _do_seed() -> int:
+        def _do_seed() -> Tuple[int, int]:
             rag = HokuRAG(db=db)
             rag.create_vector_store()
-            return rag.add_faq_documents(FAQS)
+            return rag.upsert_faq_documents(FAQS)
 
-        added = await asyncio.to_thread(_do_seed)
+        added, skipped = await asyncio.to_thread(_do_seed)
 
         return {
             "status": "ok",
             "documents_added": added,
+            "documents_skipped": skipped,
             "collection": settings.COLLECTION_NAME,
         }
     except Exception as exc:
@@ -593,6 +597,7 @@ async def search_rag(
         example="What services does Hoku offer?",
     ),
     db: Session = Depends(get_db),
+    _admin: Dict[str, Any] = Depends(require_admin),
 ) -> Dict[str, Any]:
     """
     Debug endpoint: run similarity_search directly and return raw results.
@@ -653,7 +658,7 @@ async def list_doctors_by_specialty(
         example="Cardiologist",
     ),
     db: Session = Depends(get_db),
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(require_patient_or_admin),
 ) -> List[DoctorRead]:
     """
     List available doctors for a given medical specialty.
@@ -700,7 +705,7 @@ async def list_doctors_by_specialty(
 async def get_doctor_schedule(
     doctor_id: int = Path(..., ge=1, description="Doctor ID", example=3),
     db: Session = Depends(get_db),
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(require_patient_or_admin),
 ) -> List[DoctorAvailability]:
     """
     Get the weekly availability schedule for a specific doctor.
@@ -750,7 +755,7 @@ async def get_doctor_schedule(
     },
 )
 async def get_monitoring_metrics(
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(require_admin),
 ) -> Dict[str, Any]:
     """
     Retrieve current safety and performance metrics.

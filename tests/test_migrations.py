@@ -70,6 +70,39 @@ def test_upgrade_adopts_database_built_by_create_all(mig_engine):
     assert _diff(mig_engine) == []
 
 
+def test_006_backfills_hashes_and_removes_duplicate_questions(mig_engine):
+    import json
+
+    from sqlalchemy import text
+
+    from app.models.vector_store import faq_content_hash
+
+    _run(mig_engine, command.upgrade, "005")
+    rows = [
+        (1, "What are your hours?"),
+        (2, "Do you visit Lahore?"),
+        (3, "What are your hours?"),  # duplicate of id 1
+    ]
+    with mig_engine.begin() as conn:
+        for row_id, question in rows:
+            conn.execute(
+                text(
+                    "INSERT INTO vector_store (id, content, doc_metadata, category, created_at) "
+                    "VALUES (:id, :c, :m, 'general', CURRENT_TIMESTAMP)"
+                ),
+                {"id": row_id, "c": question, "m": json.dumps({"question": question})},
+            )
+    _run(mig_engine, command.upgrade, "head")
+    with mig_engine.connect() as conn:
+        remaining = conn.execute(
+            text("SELECT id, content_hash FROM vector_store ORDER BY id")
+        ).all()
+    assert remaining == [
+        (1, faq_content_hash("What are your hours?")),
+        (2, faq_content_hash("Do you visit Lahore?")),
+    ]
+
+
 def test_seed_doctors_is_idempotent(mig_engine):
     from app.scripts.seed_doctors import SAMPLE_DOCTORS, WEEKLY_SLOTS, seed_doctors
 

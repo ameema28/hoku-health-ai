@@ -123,13 +123,20 @@ class TestDoctorEndpoints:
         assert resp.json() == []
 
 
+@pytest.fixture
+def admin_auth(db: Any) -> Dict[str, str]:
+    """Authorization header for an admin user (id 2)."""
+    add_user(db, user_id=2, role="admin")
+    return {"Authorization": bearer(2, "admin")}
+
+
 class TestMonitoringEndpoint:
-    """The authenticated metrics summary returns the HokuMetrics dict."""
+    """The admin metrics summary returns the HokuMetrics dict."""
 
     def test_monitoring_metrics_summary(
-        self, client: TestClient, auth: Dict[str, str]
+        self, client: TestClient, admin_auth: Dict[str, str]
     ) -> None:
-        resp = client.get("/api/ai/monitoring/metrics", headers=auth)
+        resp = client.get("/api/ai/monitoring/metrics", headers=admin_auth)
         assert resp.status_code == 200
         body = resp.json()
         assert body["status"] == "ok"
@@ -139,8 +146,10 @@ class TestMonitoringEndpoint:
 class TestRagDebugEndpoint:
     """The RAG debug search endpoint responds without an LLM call."""
 
-    def test_rag_search_returns_results_key(self, client: TestClient) -> None:
-        resp = client.get("/api/ai/rag/search?q=services")
+    def test_rag_search_returns_results_key(
+        self, client: TestClient, admin_auth: Dict[str, str]
+    ) -> None:
+        resp = client.get("/api/ai/rag/search?q=services", headers=admin_auth)
         # 200 with a results list (empty on an unseeded store) is the contract.
         assert resp.status_code == 200
         assert "results" in resp.json()

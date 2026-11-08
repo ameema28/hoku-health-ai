@@ -18,6 +18,7 @@ Wires together the AI router, observability, and lifecycle management:
 from __future__ import annotations
 
 import asyncio
+import hmac
 import logging
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
@@ -336,18 +337,30 @@ async def root() -> dict:
     summary="Prometheus metrics",
     include_in_schema=False,
 )
-async def metrics() -> Response:
+async def metrics(request: Request) -> Response:
     """
     Expose the Prometheus text exposition format for scraping.
 
-    Gated by ``settings.METRICS_ENABLED`` so it can be disabled in
-    locked-down environments. Intentionally unauthenticated: scrape it
-    from a private network or protect it at the ingress/proxy layer.
+    - ``METRICS_ENABLED=false``: 404.
+    - ``METRICS_TOKEN`` set: requires ``Authorization: Bearer <METRICS_TOKEN>``
+      (constant-time compare); missing or wrong -> 401.
+    - ``METRICS_TOKEN`` unset: open in ENVIRONMENT test/development only,
+      404 everywhere else.
 
     Returns:
-        Response: The metrics payload, or 404 when metrics are disabled.
+        Response: The metrics payload, or 401/404 as above.
     """
     if not settings.METRICS_ENABLED:
+        return Response(status_code=status.HTTP_404_NOT_FOUND)
+    if settings.METRICS_TOKEN:
+        supplied = request.headers.get("authorization", "")
+        expected = f"Bearer {settings.METRICS_TOKEN}"
+        if not hmac.compare_digest(supplied.encode(), expected.encode()):
+            return Response(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+    elif settings.ENVIRONMENT.lower() not in ("test", "development"):
         return Response(status_code=status.HTTP_404_NOT_FOUND)
     payload, content_type = render_prometheus()
     return Response(content=payload, media_type=content_type)
