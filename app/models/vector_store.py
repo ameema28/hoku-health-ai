@@ -22,7 +22,7 @@ import hashlib
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import Index, JSON, String
+from sqlalchemy import JSON, DateTime, Index, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.config import settings
@@ -61,6 +61,20 @@ class VectorStore(Base):
     __table_args__ = (
         Index("ix_vector_store_category", "category"),
         Index("ux_vector_store_content_hash", "content_hash", unique=True),
+        # Created by migration 003 on pgvector; declared here so the model
+        # and the migrated schema compare equal on Postgres.
+        *(
+            (
+                Index(
+                    "ix_vector_store_embedding_hnsw",
+                    "embedding",
+                    postgresql_using="hnsw",
+                    postgresql_ops={"embedding": "vector_cosine_ops"},
+                ),
+            )
+            if _USE_PGVECTOR_COLUMN
+            else ()
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
@@ -89,6 +103,9 @@ class VectorStore(Base):
     # duplicate index definition).
     category: Mapped[str] = mapped_column(String(32), nullable=False)
 
+    # timezone=True matches migration 003 (and every other table).
     created_at: Mapped[datetime] = mapped_column(
-        default=lambda: datetime.now(timezone.utc), nullable=False
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
     )

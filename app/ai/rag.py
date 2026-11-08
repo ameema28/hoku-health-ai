@@ -34,7 +34,7 @@ from sqlalchemy.orm import Session
 
 from app.ai.embeddings import EmbeddingManager
 from app.core.config import settings
-from app.core.database import SessionLocal, engine
+from app.core.database import SessionLocal
 from app.models.vector_store import PGVECTOR_AVAILABLE, VectorStore, faq_content_hash
 
 logger = logging.getLogger(__name__)
@@ -71,7 +71,9 @@ class HokuRAG:
         self.similarity_threshold = settings.RAG_SIMILARITY_THRESHOLD
         self._owns_session = db is None
         self._db = db or SessionLocal()
-        self._is_postgres = engine.dialect.name == "postgresql"
+        # From the session actually used (not the global engine), so an
+        # injected SQLite session never takes the pgvector path and vice versa.
+        self._is_postgres = self._db.get_bind().dialect.name == "postgresql"
 
     def __del__(self) -> None:
         """Close the session if HokuRAG opened it itself."""
@@ -256,20 +258,20 @@ class HokuRAG:
 
         try:
             if self._is_postgres:
-                # pgvector cosine_distance: 0 = identical, 2 = opposite.
-                # similarity = 1 - distance.
+                # pgvector `<=>` cosine distance (0 = identical, 2 = opposite),
+                # computed in SQL and returned with each row: score = 1 - distance.
+                # (Never touch row.embedding here: pgvector returns a numpy
+                # array, whose truth value is ambiguous - the old F3 bug.)
+                distance = VectorStore.embedding.cosine_distance(query_embedding)
                 stmt = (
-                    select(VectorStore)
-                    .order_by(VectorStore.embedding.cosine_distance(query_embedding))
+                    select(VectorStore, distance.label("distance"))
+                    .order_by(distance)
                     .limit(k)
                 )
                 with self._search_session() as session:
-                    rows = list(session.execute(stmt).scalars().all())
-                for row in rows:
-                    distance = _cosine_distance_placeholder(
-                        row.embedding, query_embedding
-                    )
-                    score = 1.0 - distance
+                    rows = list(session.execute(stmt).all())
+                for row, row_distance in rows:
+                    score = 1.0 - float(row_distance)
                     results.append(
                         Document(
                             page_content=row.content,
@@ -362,17 +364,3 @@ class HokuRAG:
             context_parts.append(f"- Q: {question}\n  A: {answer}")
 
         return "\n".join(context_parts)
-
-
-def _cosine_distance_placeholder(
-    vec_a: Optional[List[float]], vec_b: List[float]
-) -> float:
-    """
-    Compute cosine distance (1 - cosine_similarity) in Python.
-
-    Used to report a human-readable score alongside pgvector results
-    without a second round-trip to the database.
-    """
-    if not vec_a:
-        return 1.0
-    return 1.0 - _cosine_similarity(vec_a, vec_b)
