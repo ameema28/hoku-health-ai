@@ -26,7 +26,7 @@ from typing import AsyncIterator
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.ai.readiness import health_payload
@@ -43,6 +43,7 @@ from app.core.monitoring import (
     set_build_info,
 )
 from app.core.security import validate_security_settings
+from app.demo_page import DEMO_PAGE_HEADERS, DEMO_PAGE_HTML
 from app.utils.constants import SAFETY_DISCLAIMER
 
 # Refuse to build the app with a missing/short SECRET_KEY (outside tests).
@@ -333,19 +334,20 @@ app.include_router(ai.router)
 # ---------------------------------------------------------------------------
 # Root & metrics
 # ---------------------------------------------------------------------------
-@app.get("/", tags=["Health"], summary="Root health check")
-async def root() -> dict:
+@app.get(
+    "/",
+    response_class=HTMLResponse,
+    include_in_schema=False,
+    summary="Demo chat page",
+)
+async def root() -> HTMLResponse:
     """
-    Root liveness endpoint.
+    The demo chat page (app/static/index.html) with a hash-based CSP.
 
-    Returns:
-        dict: Service name, version, and environment.
+    It needs DEMO_LOGIN_ENABLED=true to start a session; otherwise it shows
+    "Demo login is disabled on this server." Use /health for probes.
     """
-    return {
-        "message": "Hoku Health Care API is running",
-        "version": APP_VERSION,
-        "environment": settings.ENVIRONMENT,
-    }
+    return HTMLResponse(DEMO_PAGE_HTML, headers=DEMO_PAGE_HEADERS)
 
 
 @app.get(

@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="hoku-demo" content="chat">
+<meta name="color-scheme" content="light dark">
+<title>Hoku AI · demo</title>
+<style>
+:root {
+  --bg: #f3f6f6;
+  --surface: #ffffff;
+  --text: #17201f;
+  --muted: #5d6b69;
+  --border: #d9e2e0;
+  --accent: #1f6f68;
+  --accent-text: #ffffff;
+  --user: #dcefec;
+  --warn-bg: #fff4e0;
+  --warn-text: #6b4300;
+  --danger: #b3261e;
+  --danger-bg: #fdecea;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111716;
+    --surface: #1b2322;
+    --text: #e8efee;
+    --muted: #9aaaa8;
+    --border: #2c3836;
+    --accent: #5fc2b8;
+    --accent-text: #0f1716;
+    --user: #22403c;
+    --warn-bg: #3a2e14;
+    --warn-text: #f3d9a4;
+    --danger: #ff8a80;
+    --danger-bg: #3b1d1b;
+  }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 0 16px;
+}
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 0 8px;
+}
+header h1 { font-size: 1.1rem; margin: 0; }
+header p { margin: 2px 0 0; color: var(--muted); font-size: 0.85rem; }
+.banner {
+  background: var(--warn-bg);
+  color: var(--warn-text);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.toggle {
+  flex: none;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.toggle[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+#log {
+  position: relative;
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.msg {
+  max-width: 85%;
+  padding: 10px 14px;
+  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.msg.user { align-self: flex-end; background: var(--user); border-color: transparent; }
+.msg.bot { align-self: flex-start; }
+.msg.error { color: var(--danger); }
+.msg.emergency { border-color: var(--danger); background: var(--danger-bg); }
+.flag { font-weight: 700; color: var(--danger); margin-bottom: 4px; white-space: normal; }
+.doctor {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  white-space: normal;
+  font-size: 0.92rem;
+}
+.doctor strong { display: block; }
+.doctor ul { margin: 4px 0 0; padding-left: 18px; }
+.details {
+  margin: 8px 0 0;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+  color: var(--muted);
+  font-size: 0.82rem;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  white-space: normal;
+}
+.details dt { font-weight: 600; }
+.details dd { margin: 0; }
+.app:not(.show-details) .details { display: none; }
+.typing { display: inline-flex; gap: 4px; align-items: center; }
+.typing span {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--muted);
+  animation: blink 1.2s infinite ease-in-out;
+}
+.typing span:nth-child(2) { animation-delay: 0.2s; }
+.typing span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes blink { 0%, 80%, 100% { opacity: 0.25; } 40% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .typing span { animation: none; opacity: 0.6; } }
+.examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 0;
+}
+.examples button {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+/* Phones: one horizontally scrolling row of examples, so the chat log keeps
+   its height when the keyboard is open. */
+@media (max-width: 600px) {
+  .examples { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .examples::-webkit-scrollbar { display: none; }
+  .examples button { flex: none; white-space: nowrap; }
+}
+/* Narrow or short screens: a compact header leaves more height for the log.
+   The "not medical advice" banner stays visible. */
+@media (max-width: 600px), (max-height: 640px) {
+  header { padding: 8px 0 6px; }
+  header h1 { font-size: 0.95rem; }
+  header p { display: none; }
+  .banner { padding: 6px 10px; font-size: 0.78rem; }
+  .toggle { padding: 4px 10px; font-size: 0.8rem; }
+  footer { font-size: 0.68rem; padding-bottom: 4px; }
+}
+form {
+  display: flex;
+  gap: 8px;
+  padding: 8px 0 calc(12px + env(safe-area-inset-bottom));
+}
+input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font: inherit;
+}
+form button {
+  border: 0;
+  background: var(--accent);
+  color: var(--accent-text);
+  border-radius: 12px;
+  padding: 10px 16px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+button:disabled, input:disabled { opacity: 0.55; cursor: not-allowed; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.status { color: var(--muted); font-size: 0.8rem; padding-bottom: 4px; }
+footer { color: var(--muted); font-size: 0.75rem; padding-bottom: 8px; }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <header>
+    <div>
+      <h1>Hoku AI, the Hoku Health Care assistant</h1>
+      <p>Demo with sample FAQs and sample doctors.</p>
+    </div>
+    <button type="button" class="toggle" id="details-toggle" aria-pressed="false">Show details</button>
+  </header>
+  <div class="banner" id="banner" role="note">Demo only. Not medical advice. In an emergency, call your local emergency number.</div>
+  <div id="log" role="log" aria-live="polite"></div>
+  <div class="examples" id="examples">
+    <button type="button">My father has chest pain and can't breathe</button>
+    <button type="button">I've had an itchy skin rash on my arm for a week</button>
+    <button type="button">Do you provide home nursing care in Lahore?</button>
+    <button type="button">How soon can I get a home visit after booking?</button>
+  </div>
+  <form id="composer" autocomplete="off">
+    <input type="text" id="message" maxlength="1000" placeholder="Ask a health question or about Hoku's services" aria-label="Your message" required>
+    <button type="submit" id="send">Send</button>
+  </form>
+  <div class="status" id="status">Connecting…</div>
+  <footer>Each visit gets a throwaway demo account; its messages are deleted after 24 hours. Please don't enter personal information.</footer>
+</div>
+<script>
+"use strict";
+(function () {
+  var LOGIN_URL = "/api/auth/demo";
+  var CHAT_URL = "/api/ai/chat";
+  var token = null;
+  var userId = null;
+  var busy = false;
+
+  var app = document.getElementById("app");
+  var log = document.getElementById("log");
+  var form = document.getElementById("composer");
+  var input = document.getElementById("message");
+  var sendButton = document.getElementById("send");
+  var statusLine = document.getElementById("status");
+  var toggle = document.getElementById("details-toggle");
+  var exampleButtons = document.querySelectorAll("#examples button");
+
+  function DemoError(message) { this.message = message; }
+
+  function el(tag, className, text) {
+    var node = document.createElement(tag);
+    if (className) { node.className = className; }
+    if (text !== undefined) { node.textContent = text; }
+    return node;
+  }
+
+  var newestReply = null;
+
+  function scrollDown() { log.scrollTop = log.scrollHeight; }
+
+  // Keep the newest reply in view. If it is taller than the log, show its
+  // start (not its end); otherwise scroll to the bottom. #log is
+  // position: relative, so offsetTop is measured inside the log.
+  function showNewest(node) {
+    if (!node) { return; }
+    log.scrollTop = node.offsetHeight > log.clientHeight ? node.offsetTop : log.scrollHeight;
+  }
+
+  // The on-screen keyboard shrinks the log after a reply; scroll again then.
+  function keepNewestVisible() { showNewest(newestReply); }
+  window.addEventListener("resize", keepNewestVisible);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", keepNewestVisible);
+  }
+
+  function addMessage(kind, text) {
+    var node = el("div", "msg " + kind, text);
+    node.dir = "auto";
+    log.appendChild(node);
+    scrollDown();
+    return node;
+  }
+
+  var NOT_RETURNED = "not returned";
+  var INTENT_LABELS = {
+    symptom: "Symptom question",
+    booking: "Booking question",
+    medication: "Medication question",
+    general: "General or FAQ question",
+    emergency: "Emergency"
+  };
+  var DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+  function missing(value) { return value === null || value === undefined; }
+
+  function intentText(value) {
+    if (missing(value)) { return NOT_RETURNED; }
+    return INTENT_LABELS[value] ? INTENT_LABELS[value] + " (" + value + ")" : String(value);
+  }
+
+  // Below 0.7 the server answers as a general question; 0 means the
+  // classifier was unavailable or gave no usable label.
+  function confidenceText(value) {
+    if (missing(value)) { return NOT_RETURNED; }
+    var percent = Math.round(value * 100) + "%";
+    if (value === 0) { return percent + " (no classification, answered as general)"; }
+    return value < 0.7 ? percent + " (low, answered as general)" : percent;
+  }
+
+  function yesNo(value) {
+    if (missing(value)) { return NOT_RETURNED; }
+    return value ? "yes" : "no";
+  }
+
+  function fallbackText(value) {
+    if (missing(value)) { return NOT_RETURNED; }
+    return value ? "yes (built from FAQ/doctor data, no live model)" : "no (live model)";
+  }
+
+  function serverTimeText(value) {
+    if (missing(value)) { return NOT_RETURNED; }
+    var seconds = parseFloat(value);
+    return isNaN(seconds) ? String(value) : Math.round(seconds * 1000) + " ms (server time)";
+  }
+
+  function slotText(slot) {
+    var day = DAYS[slot.day_of_week] || ("day " + slot.day_of_week);
+    return day + " " + slot.start_time + "–" + slot.end_time;
+  }
+
+  function doctorBox(doctor) {
+    var box = el("div", "doctor");
+    box.appendChild(el("strong", "", "Suggested doctor"));
+    var line = (doctor.doctor_name || "A doctor") + " · " + doctor.specialist;
+    if (!missing(doctor.experience)) { line += " · " + doctor.experience + " years of experience"; }
+    box.appendChild(el("div", "", line));
+    if (doctor.requested_specialist) {
+      box.appendChild(el("div", "", "No " + doctor.requested_specialist + " is available, so a " + doctor.specialist + " is suggested."));
+    }
+    if (Array.isArray(doctor.availability) && doctor.availability.length) {
+      var list = el("ul");
+      doctor.availability.forEach(function (slot) { list.appendChild(el("li", "", slotText(slot))); });
+      box.appendChild(el("div", "", "Open times:"));
+      box.appendChild(list);
+    }
+    return box;
+  }
+
+  function addReply(data, headers) {
+    var emergency = headers.get("X-Hoku-Emergency") === "true";
+    var node = addMessage(emergency ? "bot emergency" : "bot", "");
+    if (emergency) { node.appendChild(el("div", "flag", "Possible emergency")); }
+    node.appendChild(document.createTextNode(data.reply));
+    if (data.doctor_suggestion) { node.appendChild(doctorBox(data.doctor_suggestion)); }
+    var details = el("dl", "details");
+    [
+      ["Intent", intentText(data.intent)],
+      ["Confidence", confidenceText(data.confidence)],
+      ["Severity", missing(data.severity) ? NOT_RETURNED : data.severity],
+      ["See a doctor", yesNo(data.shouldSeeDoctor)],
+      ["Suggested specialist", missing(data.suggestedSpecialist) ? "none" : data.suggestedSpecialist],
+      ["Emergency flag", emergency ? "yes (X-Hoku-Emergency header)" : "no"],
+      ["Fallback used", fallbackText(data.fallback_used)],
+      ["Response time", serverTimeText(headers.get("X-Response-Time-Sec"))]
+    ].forEach(function (pair) {
+      details.appendChild(el("dt", "", pair[0]));
+      details.appendChild(el("dd", "", pair[1]));
+    });
+    node.appendChild(details);
+    newestReply = node;
+    showNewest(node);
+  }
+
+  function showTyping() {
+    var node = el("div", "msg bot typing");
+    node.setAttribute("aria-label", "Hoku AI is typing");
+    node.appendChild(el("span"));
+    node.appendChild(el("span"));
+    node.appendChild(el("span"));
+    log.appendChild(node);
+    scrollDown();
+    return node;
+  }
+
+  function setBusy(value) {
+    busy = value;
+    input.disabled = value;
+    sendButton.disabled = value;
+    exampleButtons.forEach(function (b) { b.disabled = value; });
+  }
+
+  // The chat API needs the user id the token was issued for; it is the
+  // token's "sub" claim. Token and id are kept in memory only.
+  function subjectOf(jwt) {
+    var part = jwt.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    while (part.length % 4) { part += "="; }
+    return parseInt(JSON.parse(atob(part)).sub, 10);
+  }
+
+  async function startSession() {
+    token = null;
+    userId = null;
+    var response = await fetch(LOGIN_URL, { method: "POST" });
+    if (response.status === 404) {
+      throw new DemoError("Demo login is disabled on this server.");
+    }
+    if (response.status === 429) {
+      throw new DemoError("Too many demo sessions from your network. Please try again later.");
+    }
+    if (!response.ok) {
+      throw new DemoError("Could not start a demo session (HTTP " + response.status + ").");
+    }
+    var body = await response.json();
+    token = body.access_token;
+    userId = subjectOf(token);
+  }
+
+  function postChat(message) {
+    return fetch(CHAT_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+      body: JSON.stringify({ message: message, userId: userId })
+    });
+  }
+
+  async function ask(message) {
+    if (!token) { await startSession(); }
+    var response = await postChat(message);
+    if (response.status === 401) {
+      await startSession();
+      response = await postChat(message);
+    }
+    if (response.status === 429) {
+      throw new DemoError("Too many requests. Please wait a minute and try again.");
+    }
+    if (!response.ok) {
+      throw new DemoError("Something went wrong (HTTP " + response.status + "). Please try again.");
+    }
+    return { data: await response.json(), headers: response.headers };
+  }
+
+  async function send(message) {
+    message = message.trim();
+    if (!message || busy) { return; }
+    setBusy(true);
+    addMessage("user", message);
+    var typing = showTyping();
+    try {
+      var result = await ask(message);
+      typing.remove();
+      addReply(result.data, result.headers);
+      statusLine.textContent = "Ready";
+    } catch (err) {
+      typing.remove();
+      var text = err instanceof DemoError ? err.message : "Network error. Please check your connection and try again.";
+      newestReply = addMessage("bot error", text);
+      showNewest(newestReply);
+      statusLine.textContent = "The last message failed (see above).";
+    } finally {
+      setBusy(false);
+      input.focus();
+    }
+  }
+
+  form.addEventListener("submit", function (event) {
+    event.preventDefault();
+    var message = input.value;
+    input.value = "";
+    send(message);
+  });
+
+  exampleButtons.forEach(function (button) {
+    button.addEventListener("click", function () { send(button.textContent); });
+  });
+
+  toggle.addEventListener("click", function () {
+    var on = !app.classList.contains("show-details");
+    app.classList.toggle("show-details", on);
+    toggle.setAttribute("aria-pressed", on ? "true" : "false");
+    toggle.textContent = on ? "Hide details" : "Show details";
+    showNewest(newestReply);
+  });
+
+  addMessage("bot", "Hi, I'm Hoku AI. Ask me a health question or about Hoku Health Care's home-care services and bookings. I can't diagnose or prescribe.");
+  startSession().then(function () {
+    statusLine.textContent = "Ready";
+  }, function (err) {
+    statusLine.textContent = err instanceof DemoError ? err.message : "Could not reach the server.";
+  });
+})();
+</script>
+</body>
+</html>

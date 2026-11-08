@@ -88,7 +88,7 @@ class TestUnauthenticatedEndpoints:
     def test_root_ok(self, client: TestClient) -> None:
         resp = client.get("/")
         assert resp.status_code == 200
-        assert "version" in resp.json()
+        assert resp.headers["content-type"].startswith("text/html")
 
     def test_metrics_prometheus_exposition(self, client: TestClient) -> None:
         resp = client.get("/metrics")
