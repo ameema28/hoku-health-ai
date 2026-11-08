@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import DatabaseOperationException
 from app.models.models_chat import ChatHistory
+from app.models.user import User
 
 logger = logging.getLogger(__name__)
 
@@ -201,19 +202,16 @@ def get_recent_chat_history(
 
 def user_exists(db: Session, user_id: int) -> bool:
     """
-    Verify that a user exists in the database.
-
-    .. note::
-        This is a placeholder implementation. The Backend Lead (Talha) owns
-        the User model. Once available, replace the body with a proper query
-        against the users table.
+    Verify that an active user with ``user_id`` exists.
 
     Args:
         db: SQLAlchemy database session.
         user_id: User ID to verify.
 
     Returns:
-        bool: True if the user exists.
+        bool: True if the user exists and is active.
     """
-    # TODO: Replace with actual User model query when Backend completes it.
-    return True
+    found = db.scalar(
+        select(User.id).where(User.id == user_id, User.is_active.is_(True))
+    )
+    return found is not None

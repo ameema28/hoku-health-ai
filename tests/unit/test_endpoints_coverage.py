@@ -11,19 +11,17 @@ crud_doctor.py without any Groq call - only GETs and direct DB writes.
 
 from __future__ import annotations
 
-import datetime
 from typing import Any, Dict, Iterator
 
 import pytest
 from fastapi.testclient import TestClient
-from jose import jwt
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.core.config import settings
 from app.core.database import Base, get_db
 from app.core.rate_limit import reset_chat_rate_limiter
 from app.main import app
+from tests.auth_utils import add_user, bearer
 
 SQLALCHEMY_DATABASE_URL = "sqlite:///./test_endpoints.db"
 engine = create_engine(
@@ -35,24 +33,16 @@ USER_ID = 1
 
 
 def _token(user_id: int = USER_ID) -> str:
-    """Mint a Bearer token for the auth stub."""
-    raw = jwt.encode(
-        {
-            "sub": str(user_id),
-            "id": user_id,
-            "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=2),
-        },
-        settings.SECRET_KEY,
-        algorithm=settings.ALGORITHM,
-    )
-    return f"Bearer {raw}"
+    """Mint a Bearer token (same claims as /api/auth/login)."""
+    return bearer(user_id, "patient")
 
 
 @pytest.fixture(scope="function")
 def db() -> Iterator[Any]:
-    """Fresh schema per test."""
+    """Fresh schema per test, with patient user USER_ID."""
     Base.metadata.create_all(bind=engine)
     session = TestingSessionLocal()
+    add_user(session, user_id=USER_ID, role="patient")
     try:
         yield session
     finally:

@@ -10,16 +10,23 @@ suite are unaffected when the variables are absent.
 """
 
 import logging
-from typing import List
+import os
+from typing import List, Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+#: ``.env`` is never read when ENVIRONMENT=test (taken from the real process
+#: environment), so a developer's local secrets cannot leak into test runs.
+ENV_FILE: Optional[str] = (
+    None if os.getenv("ENVIRONMENT", "").lower() == "test" else ".env"
+)
 
 
 class Settings(BaseSettings):
     """Application configuration loaded from environment variables."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=ENV_FILE,
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -28,10 +35,20 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "postgresql://user:password@localhost:5432/hoku_health"
 
-    # Security
-    SECRET_KEY: str = "change-me-in-production"
-    ALGORITHM: str = "HS256"
+    # Security. No default key: outside ENVIRONMENT=test the app refuses to
+    # start unless SECRET_KEY has 32+ characters (see
+    # app.core.security.validate_security_settings). JWTs are always HS256.
+    SECRET_KEY: str = ""
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    JWT_ISSUER: str = "hoku-health-ai"
+    JWT_AUDIENCE: str = "hoku-health-api"
+
+    # Demo login (POST /api/auth/demo). Off unless explicitly enabled.
+    DEMO_LOGIN_ENABLED: bool = False
+    DEMO_TOKEN_EXPIRE_MINUTES: int = 15
+    #: Per client IP. Behind a proxy without forwarded-header handling every
+    #: client shares one IP, so this then acts as a global limit.
+    DEMO_RATE_LIMIT_PER_HOUR: int = 10
 
     # Groq AI
     GROQ_API_KEY: str = ""

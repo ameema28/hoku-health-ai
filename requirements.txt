@@ -26,7 +26,8 @@ sentence-transformers==3.0.1
 
 # ---- Auth & security ------------------------------------------------------
 python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
+# bcrypt used directly; passlib 1.7.4 cannot hash with bcrypt 5.
+bcrypt==5.0.0
 
 # ---- HTTP client (also used by the async load test) -----------------------
 httpx==0.27.0

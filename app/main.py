@@ -28,7 +28,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.api.v1.endpoints import ai
+from app.api.v1.endpoints import ai, auth
 from app.core.config import settings
 from app.core.logging import (
     RequestLoggingMiddleware,
@@ -40,7 +40,11 @@ from app.core.monitoring import (
     render_prometheus,
     set_build_info,
 )
+from app.core.security import validate_security_settings
 from app.utils.constants import SAFETY_DISCLAIMER
+
+# Refuse to build the app with a missing/short SECRET_KEY (outside tests).
+validate_security_settings(settings)
 
 # Configure logging before any module-level logger emits a line.
 configure_structured_logging()
@@ -252,12 +256,19 @@ async def validation_exception_handler(
         exc: The validation error.
 
     Returns:
-        JSONResponse: The error list plus correlation ID.
+        JSONResponse: The error list plus correlation ID. On /api/auth/*
+        the submitted values ("input"/"ctx") are dropped so a password is
+        never echoed back.
     """
+    errors = exc.errors()
+    if request.url.path.startswith("/api/auth"):
+        errors = [
+            {k: v for k, v in e.items() if k not in ("input", "ctx")} for e in errors
+        ]
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={
-            "detail": exc.errors(),
+            "detail": errors,
             "correlation_id": get_correlation_id(),
         },
     )
@@ -297,6 +308,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 # ---------------------------------------------------------------------------
 # Routers
 # ---------------------------------------------------------------------------
+app.include_router(auth.router)
 app.include_router(ai.router)
 
 

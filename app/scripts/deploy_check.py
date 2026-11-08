@@ -103,8 +103,8 @@ def check_environment() -> CheckResult:
         missing.append("DATABASE_URL")
 
     if settings.is_production:
-        if settings.SECRET_KEY == "change-me-in-production":
-            insecure.append("SECRET_KEY is still the development default")
+        if len(settings.SECRET_KEY) < 32:
+            insecure.append("SECRET_KEY is shorter than 32 characters")
         if settings.DEBUG:
             insecure.append("DEBUG=true in a production environment")
         if settings.DATABASE_URL.startswith("sqlite"):

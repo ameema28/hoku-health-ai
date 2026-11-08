@@ -70,15 +70,22 @@ def _isolate_chatbot_cache():
 
 
 @pytest.fixture
-def auth_headers(client):
+def auth_headers(client, db):
     """
     Authenticated headers for endpoints that require JWT.
-    Overrides get_current_user so any Bearer token works in tests.
+
+    Inserts patient user id 1 (``user_exists`` is a real query) and
+    overrides get_current_user so any Bearer token works in tests.
     """
     from app.core.dependencies import get_current_user
+    from tests.auth_utils import add_user
 
-    app.dependency_overrides[get_current_user] = lambda: {
-        "id": 1,
-        "email": "test@hoku.health",
+    user = add_user(db, user_id=1, role="patient")
+    principal = {
+        "id": user.id,
+        "role": user.role,
+        "email": user.email,
+        "is_demo": False,
     }
+    app.dependency_overrides[get_current_user] = lambda: dict(principal)
     return {"Authorization": "Bearer test-token"}

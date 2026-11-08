@@ -26,7 +26,6 @@ Isolation:
 
 from __future__ import annotations
 
-import datetime
 import json
 import os
 from typing import Any, Dict, Iterator
@@ -34,15 +33,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-from jose import jwt
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.core.config import settings
 from app.core.database import Base, get_db
 from app.core.rate_limit import reset_chat_rate_limiter
 from app.main import app
 from app.utils.constants import SAFETY_DISCLAIMER
+from tests.auth_utils import add_user, bearer
 
 # ---------------------------------------------------------------------------
 # Test database (Postgres when TEST_DATABASE_URL is set, else SQLite file)
@@ -59,24 +57,15 @@ USER_ID = 1
 
 def _make_token(user_id: int = USER_ID) -> str:
     """
-    Mint a valid Bearer token for the auth stub.
+    Mint a valid Bearer token (same claims as /api/auth/login).
 
     Args:
-        user_id: Subject id to embed.
+        user_id: Subject id to embed (the user row is created by ``db``).
 
     Returns:
         str: The ``Bearer <jwt>`` header value.
     """
-    token = jwt.encode(
-        {
-            "sub": str(user_id),
-            "id": user_id,
-            "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=2),
-        },
-        settings.SECRET_KEY,
-        algorithm=settings.ALGORITHM,
-    )
-    return f"Bearer {token}"
+    return bearer(user_id, "patient")
 
 
 def _llm_payload(reply: str, **overrides: Any) -> Dict[str, str]:
@@ -106,6 +95,7 @@ def db() -> Iterator[Any]:
     """Create a fresh schema per test and yield a session."""
     Base.metadata.create_all(bind=engine)
     session = TestingSessionLocal()
+    add_user(session, user_id=USER_ID, role="patient")
     try:
         yield session
     finally:

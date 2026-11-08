@@ -21,6 +21,7 @@ APP_TABLES = {
     "doctors",
     "doctor_availability",
     "safety_logs",
+    "users",
 }
 
 
@@ -86,6 +87,20 @@ def test_seed_doctors_is_idempotent(mig_engine):
     assert second == {"doctors_added": 0, "doctors_skipped": 7, "slots_added": 0}
     assert n_doctors == 7
     assert n_slots == 7 * len(WEEKLY_SLOTS)
+
+
+def test_no_users_after_migrations_and_seeds(mig_engine):
+    """There is no default admin (or any account) after setup."""
+    from app.models import User
+    from app.scripts.seed_doctors import seed_doctors
+
+    _run(mig_engine, command.upgrade, "head")
+    session = sessionmaker(bind=mig_engine)()
+    try:
+        seed_doctors(session)
+        assert session.scalar(select(func.count()).select_from(User)) == 0
+    finally:
+        session.close()
 
 
 def test_faq_seed_runs_against_migrated_db(mig_engine):

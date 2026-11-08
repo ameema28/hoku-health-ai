@@ -25,6 +25,7 @@ import logging
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core.config import ENV_FILE
 from app.core.config import settings as core_settings
 
 logger = logging.getLogger(__name__)
@@ -38,7 +39,7 @@ class AISettings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=ENV_FILE,
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",

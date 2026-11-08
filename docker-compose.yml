@@ -75,8 +75,8 @@ services:
       # ---- Core (app/core/config.py) ----------------------------------
       DATABASE_URL: postgresql://${POSTGRES_USER:-hoku}:${POSTGRES_PASSWORD:-hoku_dev_password}@postgres:5432/${POSTGRES_DB:-hoku_health}
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set in .env (32+ characters)}
-      ALGORITHM: ${ALGORITHM:-HS256}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      DEMO_LOGIN_ENABLED: ${DEMO_LOGIN_ENABLED:-false}
       ENVIRONMENT: ${ENVIRONMENT:-development}
       DEBUG: ${DEBUG:-false}
 

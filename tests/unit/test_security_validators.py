@@ -5,57 +5,43 @@ from __future__ import annotations
 import datetime
 
 import pytest
-from jose import jwt
+from jose import JWTError, jwt
 
 from app.core.config import settings
+from app.core.security import JWT_ALGORITHM, create_access_token, decode_access_token
 
 
 class TestSecurityToken:
-    """The JWT decode path in get_current_user."""
+    """The JWT helpers behind get_current_user."""
 
     def test_valid_token_decodes(self) -> None:
-        """A correctly signed token yields the expected subject."""
-        token = jwt.encode(
-            {
-                "sub": "1",
-                "id": 1,
-                "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=1),
-            },
-            settings.SECRET_KEY,
-            algorithm=settings.ALGORITHM,
-        )
-        decoded = jwt.decode(
-            token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
-        )
-        assert decoded["id"] == 1
+        """A token from create_access_token decodes to its subject and role."""
+        decoded = decode_access_token(create_access_token(1, "patient"))
+        assert decoded["sub"] == "1"
+        assert decoded["role"] == "patient"
 
     def test_expired_token_rejected(self) -> None:
         """An expired token raises during decode."""
-        token = jwt.encode(
-            {
-                "sub": "1",
-                "id": 1,
-                "exp": datetime.datetime.utcnow() - datetime.timedelta(hours=1),
-            },
-            settings.SECRET_KEY,
-            algorithm=settings.ALGORITHM,
-        )
-        with pytest.raises(Exception):
-            jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        token = create_access_token(1, "patient", datetime.timedelta(seconds=-60))
+        with pytest.raises(JWTError):
+            decode_access_token(token)
 
     def test_wrong_signature_rejected(self) -> None:
         """A token signed with the wrong key is rejected."""
+        now = datetime.datetime.now(datetime.timezone.utc)
         token = jwt.encode(
             {
                 "sub": "1",
-                "id": 1,
-                "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=1),
+                "role": "patient",
+                "exp": now + datetime.timedelta(hours=1),
+                "iss": settings.JWT_ISSUER,
+                "aud": settings.JWT_AUDIENCE,
             },
-            "wrong-secret-key",
-            algorithm=settings.ALGORITHM,
+            "wrong-secret-key-wrong-secret-key-000",
+            algorithm=JWT_ALGORITHM,
         )
-        with pytest.raises(Exception):
-            jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        with pytest.raises(JWTError):
+            decode_access_token(token)
 
 
 class TestValidatorsExtra:
