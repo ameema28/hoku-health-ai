@@ -43,12 +43,17 @@ from fastapi import (
 from sqlalchemy.orm import Session
 
 from app.ai.rag import HokuRAG
+from app.core.client_ip import client_ip
 from app.core.config import settings
 from app.core.dependencies import get_db
 from app.core.security import require_admin, require_patient_or_admin
 from app.core.exceptions import UserNotFoundException
 from app.core.monitoring import get_metrics
-from app.core.rate_limit import RateLimitExceeded, get_chat_rate_limiter
+from app.core.rate_limit import (
+    RateLimitExceeded,
+    get_chat_ip_rate_limiter,
+    get_chat_rate_limiter,
+)
 from app.crud import get_chat_history_by_user, user_exists
 from app.crud.crud_doctor import get_doctor_availability, get_doctors_by_specialty
 from app.schemas.schemas_chat import (
@@ -181,33 +186,48 @@ _ERROR_RESPONSES: Dict[Union[int, str], Dict[str, Any]] = {
 # ---------------------------------------------------------------------------
 # Day 10: rate-limit dependency
 # ---------------------------------------------------------------------------
+def _too_many_requests(exc: RateLimitExceeded) -> HTTPException:
+    """429 with Retry-After and RateLimit-* headers for a limiter breach."""
+    return HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail=f"Rate limit exceeded. Try again in {exc.retry_after_seconds} seconds.",
+        headers={
+            "Retry-After": str(exc.retry_after_seconds),
+            "RateLimit-Limit": str(exc.limit),
+            "RateLimit-Remaining": "0",
+            "RateLimit-Reset": str(exc.retry_after_seconds),
+        },
+    )
+
+
 async def enforce_chat_rate_limit(
     request: Request,
     response: Response,
     current_user: Dict[str, Any] = Depends(require_patient_or_admin),
 ) -> Dict[str, Any]:
     """
-    Enforce the per-user sliding-window rate limit for the chat endpoint.
+    Enforce the chat rate limits: per client IP, then per user.
 
-    Runs as a dependency so the limit is checked before the request body
-    is processed. On success it attaches ``RateLimit-*`` headers; on
-    breach it raises 429 with ``Retry-After``. Returns the authenticated
-    user so the endpoint can reuse it without a second ``get_current_user``
-    resolution.
+    Runs as a dependency so the limits are checked before the chat runs.
+    The per-IP cap (``CHAT_IP_RATE_PER_MINUTE``, proxy-aware via
+    ``client_ip``) is checked first, so many demo sessions from one client
+    share one budget; then the per-user limit. On success it attaches the
+    per-user ``RateLimit-*`` headers; on either breach it raises 429 with
+    ``Retry-After``. Returns the authenticated user so the endpoint can
+    reuse it without a second ``get_current_user`` resolution.
 
     Args:
-        request: The inbound request (unused directly; present so the
-            limiter can be extended to IP-based keys later).
+        request: The inbound request (source of the client IP).
         response: The outbound response, used to attach headers.
-        current_user: The authenticated user from the JWT stub.
+        current_user: The authenticated user.
 
     Returns:
         Dict[str, Any]: The authenticated user record.
 
     Raises:
-        HTTPException: 429 when the user has exceeded their quota.
+        HTTPException: 429 when the IP or the user is over its quota.
     """
-    limit = getattr(settings, "RATE_LIMIT_REQUESTS_PER_MINUTE", 5)
+    limit = settings.RATE_LIMIT_REQUESTS_PER_MINUTE
 
     if not settings.RATE_LIMIT_ENABLED:
         # Headers must be present even when enforcement is off (CI contract)
@@ -215,28 +235,25 @@ async def enforce_chat_rate_limit(
         response.headers["RateLimit-Remaining"] = str(limit)
         return current_user
 
-    limiter = get_chat_rate_limiter()
+    ip = client_ip(request)
+    try:
+        get_chat_ip_rate_limiter().check(ip)
+    except RateLimitExceeded as exc:
+        # The IP is logged only here, so the proxy setting can be checked
+        # against a real client address after a deliberate 429.
+        logger.warning(
+            "Rate limit exceeded for client IP %s (limit=%d/min)", ip, exc.limit
+        )
+        raise _too_many_requests(exc) from exc
+
     user_id = current_user["id"]
     try:
-        state = limiter.check(str(user_id))
+        state = get_chat_rate_limiter().check(str(user_id))
     except RateLimitExceeded as exc:
-        response.headers["Retry-After"] = str(exc.retry_after_seconds)
-        response.headers["RateLimit-Limit"] = str(exc.limit)
-        response.headers["RateLimit-Remaining"] = "0"
-        response.headers["RateLimit-Reset"] = str(exc.retry_after_seconds)
         logger.warning(
             "Rate limit exceeded for user_id=%s (limit=%d/min)", user_id, exc.limit
         )
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=f"Rate limit exceeded. Try again in {exc.retry_after_seconds} seconds.",
-            headers={
-                "Retry-After": str(exc.retry_after_seconds),
-                "RateLimit-Limit": str(exc.limit),
-                "RateLimit-Remaining": "0",
-                "RateLimit-Reset": str(exc.retry_after_seconds),
-            },
-        ) from exc
+        raise _too_many_requests(exc) from exc
 
     response.headers["RateLimit-Limit"] = str(state.limit)
     response.headers["RateLimit-Remaining"] = str(state.remaining)

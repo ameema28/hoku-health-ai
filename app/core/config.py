@@ -13,6 +13,7 @@ import logging
 import os
 from typing import List, Optional
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 #: ``.env`` is never read when ENVIRONMENT=test (taken from the real process
@@ -46,9 +47,16 @@ class Settings(BaseSettings):
     # Demo login (POST /api/auth/demo). Off unless explicitly enabled.
     DEMO_LOGIN_ENABLED: bool = False
     DEMO_TOKEN_EXPIRE_MINUTES: int = 15
-    #: Per client IP. Behind a proxy without forwarded-header handling every
-    #: client shares one IP, so this then acts as a global limit.
-    DEMO_RATE_LIMIT_PER_HOUR: int = 10
+    #: Per client IP (see TRUST_PROXY). Everyone behind one public IP
+    #: (shared Wi-Fi, carrier NAT) shares this limit.
+    DEMO_RATE_LIMIT_PER_HOUR: int = 20
+
+    # Client IP for the per-IP limits (app/core/client_ip.py). With
+    # TRUST_PROXY=false the socket peer is used and X-Forwarded-For is
+    # ignored. With TRUST_PROXY=true the entry TRUST_PROXY_HOPS places from
+    # the right of X-Forwarded-For is used (1 = the entry the proxy appended).
+    TRUST_PROXY: bool = False
+    TRUST_PROXY_HOPS: int = Field(default=1, ge=1)
 
     # Groq AI
     GROQ_API_KEY: str = ""
@@ -90,7 +98,10 @@ class Settings(BaseSettings):
     # Day 10: Rate limiting (POST /api/ai/chat)
     # ------------------------------------------------------------------
     RATE_LIMIT_ENABLED: bool = True
-    RATE_LIMIT_REQUESTS_PER_MINUTE: int = 5
+    #: Per authenticated user (each demo session is a new user).
+    RATE_LIMIT_REQUESTS_PER_MINUTE: int = 10
+    #: Per client IP, across all users (proxy-aware, see TRUST_PROXY).
+    CHAT_IP_RATE_PER_MINUTE: int = 20
 
     # ------------------------------------------------------------------
     # Day 10: CORS (Vercel frontend + local dev)

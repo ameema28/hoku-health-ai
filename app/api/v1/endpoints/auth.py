@@ -7,8 +7,7 @@ Hoku Health Care - Authentication endpoints.
 - ``POST /api/auth/demo``: only when ``DEMO_LOGIN_ENABLED``; otherwise 404.
   Creates a fresh demo patient per call (its own chat history), returns a
   short-lived token, and first purges demo users older than 24 hours.
-  Rate limited per client IP. Behind a proxy that is not configured to pass
-  the real client address, all callers share one IP and the limit is global.
+  Rate limited per client IP (proxy-aware: ``app.core.client_ip``).
 
 Logs carry user ids only, never emails or passwords.
 """
@@ -21,6 +20,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
+from app.core.client_ip import client_ip
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import RateLimitExceeded, SlidingWindowRateLimiter
@@ -86,9 +86,8 @@ def demo_login(request: Request, db: Session = Depends(get_db)) -> TokenResponse
     if not settings.DEMO_LOGIN_ENABLED:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
 
-    client_ip = request.client.host if request.client else "unknown"
     try:
-        get_demo_rate_limiter().check(client_ip)
+        get_demo_rate_limiter().check(client_ip(request))
     except RateLimitExceeded as exc:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,

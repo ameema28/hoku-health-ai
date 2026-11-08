@@ -190,7 +190,33 @@ def get_chat_rate_limiter() -> SlidingWindowRateLimiter:
     return _chat_rate_limiter
 
 
+_chat_ip_rate_limiter: Optional[SlidingWindowRateLimiter] = None
+
+
+def get_chat_ip_rate_limiter() -> SlidingWindowRateLimiter:
+    """
+    Return the process-wide per-client-IP limiter for the chat endpoint.
+
+    Built from ``settings.CHAT_IP_RATE_PER_MINUTE`` on first use. It caps
+    all users behind one IP together, so many demo sessions from one client
+    cannot multiply the per-user limit.
+    """
+    global _chat_ip_rate_limiter
+    if _chat_ip_rate_limiter is None:
+        with _limiter_lock:
+            if _chat_ip_rate_limiter is None:
+                from app.core.config import settings
+
+                _chat_ip_rate_limiter = SlidingWindowRateLimiter(
+                    limit=settings.CHAT_IP_RATE_PER_MINUTE,
+                    window_seconds=60.0,
+                )
+    return _chat_ip_rate_limiter
+
+
 def reset_chat_rate_limiter() -> None:
-    """Reset the chat limiter's state (test helper)."""
-    if _chat_rate_limiter is not None:
-        _chat_rate_limiter.reset()
+    """Drop both chat limiters so the next call rebuilds them (test helper)."""
+    global _chat_rate_limiter, _chat_ip_rate_limiter
+    with _limiter_lock:
+        _chat_rate_limiter = None
+        _chat_ip_rate_limiter = None

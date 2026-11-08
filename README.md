@@ -615,7 +615,10 @@ The chatbot never provides definitive diagnoses. Temperature is set to **0.3** t
 | `LOG_LEVEL` | `INFO` | Root log level (Day 10) |
 | `METRICS_ENABLED` | `true` | Toggle the `/metrics` Prometheus endpoint (Day 10) |
 | `RATE_LIMIT_ENABLED` | `true` | Toggle chat rate limiting (Day 10) |
-| `RATE_LIMIT_REQUESTS_PER_MINUTE` | `5` | Chat requests/min per user (Day 10) |
+| `RATE_LIMIT_REQUESTS_PER_MINUTE` | `10` | Chat requests/min per user |
+| `CHAT_IP_RATE_PER_MINUTE` | `20` | Chat requests/min per client IP |
+| `DEMO_RATE_LIMIT_PER_HOUR` | `20` | Demo logins/hour per client IP |
+| `TRUST_PROXY` / `TRUST_PROXY_HOPS` | `false` / `1` | Take the client IP from the right-most `X-Forwarded-For` entry (see DEPLOYMENT.md) |
 | `CORS_ALLOW_ORIGINS` | localhost + Vercel origins | Comma-separated allowed CORS origins (Day 10) |
 
 ---
