@@ -1,0 +1,86 @@
+"""
+Every Groq client is built with an explicit timeout and max_retries=0.
+
+asyncio.wait_for cannot stop the worker thread of a call the request budget
+abandoned. With no retries and a client timeout, that thread ends within the
+stage's own timeout instead of retrying in the background. No network: the
+clients are only constructed, never invoked against Groq.
+"""
+
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from app.ai.config import ai_settings
+from app.core.config import settings as core_settings
+
+
+@pytest.fixture
+def fake_key(monkeypatch):
+    monkeypatch.setattr(core_settings, "GROQ_API_KEY", "gsk_test_not_a_real_key")
+
+
+def _kwargs(mock_cls: MagicMock) -> dict:
+    assert mock_cls.call_count == 1
+    return mock_cls.call_args.kwargs
+
+
+def test_factory_fast_llm_real_client_has_no_retries(fake_key):
+    from app.ai.llm_optimizer import LLMFactory
+
+    llm = LLMFactory.get_fast_llm(api_key="gsk_test", request_timeout=0.8)
+    assert llm is not None
+    assert llm.max_retries == 0
+    assert llm.request_timeout == 0.8
+
+
+def test_factory_main_llm_real_client_has_no_retries(fake_key):
+    from app.ai.llm_optimizer import LLMFactory
+
+    llm = LLMFactory.get_main_llm(api_key="gsk_test")
+    assert llm is not None
+    assert llm.max_retries == 0
+    assert llm.request_timeout == ai_settings.GROQ_TIMEOUT_SECONDS
+
+
+def test_intent_classifier_client(fake_key):
+    from app.ai.intent_classifier import IntentClassifier
+
+    with patch("app.ai.intent_classifier.ChatGroq") as mock_cls:
+        classifier = IntentClassifier()
+        classifier.groq_api_key = "gsk_test"
+        assert classifier.llm is mock_cls.return_value
+    kwargs = _kwargs(mock_cls)
+    assert kwargs["max_retries"] == 0
+    assert kwargs["timeout"] == ai_settings.INTENT_CLASSIFICATION_TIMEOUT
+
+
+def test_emergency_tier2_client(fake_key):
+    from app.ai.emergency_detector import EmergencyDetector
+
+    with patch("langchain_groq.ChatGroq") as mock_cls:
+        EmergencyDetector._build_tier2_chain()
+    kwargs = _kwargs(mock_cls)
+    assert kwargs["max_retries"] == 0
+    assert kwargs["timeout"] == ai_settings.EMERGENCY_CHECK_TIMEOUT
+
+
+def test_symptom_extractor_client(fake_key):
+    from app.ai.symptom_extractor import _llm_extract_symptoms_sync
+
+    with patch("langchain_groq.ChatGroq") as mock_cls:
+        mock_cls.return_value.invoke.return_value = '{"symptoms": ["cough"]}'
+        assert _llm_extract_symptoms_sync("I have a cough") == ["cough"]
+    kwargs = _kwargs(mock_cls)
+    assert kwargs["max_retries"] == 0
+    assert kwargs["timeout"] == ai_settings.SYMPTOM_EXTRACTION_TIMEOUT
+
+
+def test_deploy_check_client(fake_key):
+    from app.scripts.deploy_check import check_groq
+
+    with patch("langchain_groq.ChatGroq") as mock_cls:
+        check_groq(live=False)
+    kwargs = _kwargs(mock_cls)
+    assert kwargs["max_retries"] == 0
+    assert kwargs["timeout"] == ai_settings.GROQ_TIMEOUT_SECONDS

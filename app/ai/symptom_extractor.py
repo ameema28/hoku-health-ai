@@ -75,6 +75,9 @@ def _llm_extract_symptoms_sync(text: str) -> List[str]:
             temperature=0.0,
             max_tokens=128,
             timeout=ai_settings.SYMPTOM_EXTRACTION_TIMEOUT,
+            # No retries: a timed-out call must end, not retry in its
+            # worker thread.
+            max_retries=0,
         )
 
         messages = [

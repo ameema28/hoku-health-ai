@@ -58,11 +58,12 @@ class AISettings(BaseSettings):
     MAX_TOKENS: int = 512
 
     # ------------------------------------------------------------------
-    # Timeout & Retry Policy
+    # Timeout policy. Groq clients never retry (max_retries=0): a call the
+    # request budget abandoned (asyncio.wait_for cannot stop its worker
+    # thread) must end within its own client timeout, not retry in the
+    # background.
     # ------------------------------------------------------------------
     GROQ_TIMEOUT_SECONDS: float = 3.5
-    MAX_RETRIES: int = 3
-    RETRY_BACKOFF_BASE_SECONDS: float = 1.0
 
     # ------------------------------------------------------------------
     # Structured Output

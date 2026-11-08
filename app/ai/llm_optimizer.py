@@ -133,6 +133,9 @@ class LLMFactory:
                 temperature=0.0,  # Deterministic for classification
                 max_tokens=resolved_max_tokens,  # Minimal: intent + confidence JSON
                 timeout=resolved_timeout,
+                # No retries: a timed-out call must not keep running in its
+                # worker thread (see GROQ_TIMEOUT_SECONDS in app/ai/config.py).
+                max_retries=0,
             )
             logger.debug("Fast LLM created: %s", resolved_model)
             return llm
@@ -201,6 +204,7 @@ class LLMFactory:
                 temperature=resolved_temperature,
                 max_tokens=resolved_max_tokens,
                 timeout=resolved_timeout,
+                max_retries=0,  # see get_fast_llm
             )
             logger.debug("Main LLM created: %s", resolved_model)
             return llm

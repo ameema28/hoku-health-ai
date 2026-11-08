@@ -102,6 +102,9 @@ class IntentClassifier:
                     temperature=0.0,  # Deterministic for classification
                     max_tokens=64,  # Minimal: just JSON with intent + confidence
                     timeout=self.timeout,
+                    # No retries: a timed-out call must end, not retry in
+                    # its worker thread.
+                    max_retries=0,
                 )
                 logger.info("Intent classification LLM (%s) initialized", self.model)
             except Exception as exc:

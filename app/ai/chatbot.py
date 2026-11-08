@@ -109,7 +109,6 @@ class HokuChatbot:
         self.temperature = ai_settings.TEMPERATURE
         self.max_tokens = ai_settings.MAX_TOKENS
         self.timeout = ai_settings.GROQ_TIMEOUT_SECONDS
-        self.max_retries = ai_settings.MAX_RETRIES
 
         self._fast_llm: Optional[Any] = None
         self._main_llm: Optional[Any] = None

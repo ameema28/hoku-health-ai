@@ -64,8 +64,6 @@ GROQ_MAIN_MODEL=llama-3.3-70b-versatile
 TEMPERATURE=0.3
 MAX_TOKENS=512
 GROQ_TIMEOUT_SECONDS=3.5
-MAX_RETRIES=3
-RETRY_BACKOFF_BASE_SECONDS=1.0
 MEMORY_MESSAGE_LIMIT=10
 MEMORY_MAX_TOKENS=307
 TIKTOKEN_ENABLED=false
@@ -583,9 +581,7 @@ The chatbot never provides definitive diagnoses. Temperature is set to **0.3** t
 | `GROQ_MAIN_MODEL` | `llama-3.3-70b-versatile` | Main model for patient responses |
 | `TEMPERATURE` | `0.3` | LLM temperature (clinical safety) |
 | `MAX_TOKENS` | `512` | Max response tokens |
-| `GROQ_TIMEOUT_SECONDS` | `3.5` | Hard timeout for LLM calls |
-| `MAX_RETRIES` | `3` | Retry attempts for failed calls |
-| `RETRY_BACKOFF_BASE_SECONDS` | `1.0` | Exponential backoff base |
+| `GROQ_TIMEOUT_SECONDS` | `3.5` | Groq client timeout for the reply call (clients never retry) |
 | `MEMORY_MESSAGE_LIMIT` | `10` | Max conversation turns to load |
 | `MEMORY_MAX_TOKENS` | `307` | Token budget for history |
 | `TIKTOKEN_ENABLED` | `true` | Use tiktoken for token counting |

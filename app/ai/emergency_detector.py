@@ -389,6 +389,9 @@ class EmergencyDetector:
                 temperature=0.0,
                 max_tokens=64,
                 timeout=ai_settings.EMERGENCY_CHECK_TIMEOUT,
+                # No retries: a timed-out call must end, not retry in its
+                # worker thread.
+                max_retries=0,
             )
             prompt = PromptTemplate(template="{text}", input_variables=["text"])
             return prompt | llm | StrOutputParser()

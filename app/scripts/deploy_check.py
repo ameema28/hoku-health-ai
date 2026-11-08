@@ -201,6 +201,7 @@ def check_groq(live: bool = False) -> CheckResult:
             temperature=0.0,
             max_tokens=1,
             timeout=ai_settings.GROQ_TIMEOUT_SECONDS,
+            max_retries=0,
         )
     except Exception as exc:  # noqa: BLE001
         return CheckResult(

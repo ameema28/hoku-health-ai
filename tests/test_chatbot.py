@@ -44,7 +44,6 @@ def mock_settings():
     settings.TEMPERATURE = 0.3
     settings.MAX_TOKENS = 512
     settings.GROQ_TIMEOUT_SECONDS = 3.5
-    settings.MAX_RETRIES = 3
     settings.MEMORY_MESSAGE_LIMIT = 10
     settings.MEMORY_MAX_TOKENS = 307
     return settings
