@@ -1,9 +1,8 @@
 # =============================================================================
 # Hoku Health Care - Local / staging stack (Day 10)
 #
-#   docker compose up --build
+#   docker compose up --build      # "migrate" runs init_db.py before "app" starts
 #   docker compose exec app python -m app.scripts.deploy_check
-#   docker compose exec app python -m app.scripts.seed_faqs
 #
 # The postgres image is pgvector/pgvector:pg16, which ships the vector
 # extension pre-compiled. init-pgvector.sql (below, generated inline)
@@ -36,21 +35,46 @@ services:
     networks:
       - hoku-net
 
+  # One-shot: alembic upgrade head + idempotent doctor/FAQ seeding.
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PRELOAD_EMBEDDINGS: "true"
+    image: hoku-health-backend:local
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["python", "init_db.py"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-hoku}:${POSTGRES_PASSWORD:-hoku_dev_password}@postgres:5432/${POSTGRES_DB:-hoku_health}
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set in .env (32+ characters)}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      GROQ_API_KEY: ${GROQ_API_KEY:?GROQ_API_KEY must be set in .env}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+    networks:
+      - hoku-net
+
   app:
     build:
       context: .
       dockerfile: Dockerfile
       args:
         PRELOAD_EMBEDDINGS: "true"
+    image: hoku-health-backend:local
     container_name: hoku-api
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       # ---- Core (app/core/config.py) ----------------------------------
       DATABASE_URL: postgresql://${POSTGRES_USER:-hoku}:${POSTGRES_PASSWORD:-hoku_dev_password}@postgres:5432/${POSTGRES_DB:-hoku_health}
-      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set in .env (32+ characters)}
       ALGORITHM: ${ALGORITHM:-HS256}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
       ENVIRONMENT: ${ENVIRONMENT:-development}

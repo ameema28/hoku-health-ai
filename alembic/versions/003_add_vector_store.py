@@ -75,27 +75,41 @@ def upgrade() -> None:
     # Portable base table: JSON embedding column works on every backend
     # (SQLite, Postgres-without-pgvector, etc). We upgrade the column type
     # to native `vector` below only when pgvector is actually available.
-    op.create_table(
-        "vector_store",
-        sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
-        sa.Column("content", sa.String(), nullable=False),
-        sa.Column("embedding", sa.JSON(), nullable=True),
-        sa.Column("doc_metadata", sa.JSON(), nullable=False),
-        sa.Column("category", sa.String(length=32), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-    )
+    # An existing table (built by the old create_all path) is adopted as-is.
+    inspector = sa.inspect(bind)
+    if inspector.has_table("vector_store"):
+        logger.info("vector_store already exists - adopting it, not recreating")
+    else:
+        op.create_table(
+            "vector_store",
+            sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
+            sa.Column("content", sa.String(), nullable=False),
+            sa.Column("embedding", sa.JSON(), nullable=True),
+            sa.Column("doc_metadata", sa.JSON(), nullable=False),
+            sa.Column("category", sa.String(length=32), nullable=False),
+            sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        )
 
-    op.create_index("ix_vector_store_category", "vector_store", ["category"], unique=False)
+    existing = {ix["name"] for ix in sa.inspect(bind).get_indexes("vector_store")}
+    if "ix_vector_store_category" not in existing:
+        op.create_index("ix_vector_store_category", "vector_store", ["category"], unique=False)
 
     if use_pgvector:
-        op.execute(
-            f"ALTER TABLE vector_store ALTER COLUMN embedding TYPE vector({VECTOR_DIMENSION}) "
-            f"USING embedding::text::vector({VECTOR_DIMENSION})"
-        )
+        udt = bind.execute(
+            sa.text(
+                "SELECT udt_name FROM information_schema.columns "
+                "WHERE table_name = 'vector_store' AND column_name = 'embedding'"
+            )
+        ).scalar()
+        if udt != "vector":
+            op.execute(
+                f"ALTER TABLE vector_store ALTER COLUMN embedding TYPE vector({VECTOR_DIMENSION}) "
+                f"USING embedding::text::vector({VECTOR_DIMENSION})"
+            )
         # HNSW index for fast approximate cosine-similarity search.
         # Requires pgvector >= 0.5.0.
         op.execute(
-            "CREATE INDEX ix_vector_store_embedding_hnsw "
+            "CREATE INDEX IF NOT EXISTS ix_vector_store_embedding_hnsw "
             "ON vector_store USING hnsw (embedding vector_cosine_ops)"
         )
 

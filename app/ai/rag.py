@@ -96,30 +96,35 @@ class HokuRAG:
     # ------------------------------------------------------------------
     def create_vector_store(self) -> None:
         """
-        Initialize the "hoku_health_faqs" collection.
+        Check that the "hoku_health_faqs" collection is ready.
 
-        On PostgreSQL with pgvector: ensures the pgvector extension is
-        enabled and the vector_store table exists (idempotent). On
-        SQLite (your current setup): just ensures the table exists,
-        since pgvector-specific DDL doesn't apply.
+        The table itself is created by Alembic (migration 003); this method
+        no longer creates tables. On PostgreSQL it still ensures the pgvector
+        extension exists.
+
+        Raises:
+            RuntimeError: if the vector_store table is missing (run
+                ``alembic upgrade head`` or ``python init_db.py``).
         """
+        from sqlalchemy import inspect, text
+
         if self._is_postgres:
             try:
-                from sqlalchemy import text
-
                 self._db.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
                 self._db.commit()
                 logger.info("pgvector extension enabled (or already present)")
             except Exception as exc:
                 logger.warning(
                     "Could not enable pgvector extension (may require superuser): %s",
-                    exc,
+                    type(exc).__name__,
                 )
                 self._db.rollback()
 
-        from app.core.database import Base
-
-        Base.metadata.create_all(bind=engine, tables=[VectorStore.__table__])
+        if not inspect(self._db.get_bind()).has_table(VectorStore.__tablename__):
+            raise RuntimeError(
+                "Table 'vector_store' does not exist. Run migrations first: "
+                "'alembic upgrade head' or 'python init_db.py'."
+            )
         logger.info(
             "Vector store collection '%s' initialized (postgres=%s, pgvector_available=%s)",
             self.collection_name,

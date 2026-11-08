@@ -5,11 +5,17 @@ Revision ID: 001
 Revises:
 Create Date: 2026-07-13 15:35:00.000000
 
+Skips the table if it already exists, so databases built by the old
+``Base.metadata.create_all`` path can be adopted by ``alembic upgrade head``.
 """
+
+import logging
 from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+
+logger = logging.getLogger("alembic.migration")
 
 # revision identifiers, used by Alembic.
 revision: str = "001"
@@ -26,6 +32,9 @@ def upgrade() -> None:
         - ix_chat_history_user_id: speeds up per-user lookups.
         - ix_chat_history_created_at: speeds up time-range queries.
     """
+    if sa.inspect(op.get_bind()).has_table("chat_history"):
+        logger.info("chat_history already exists - adopting it, not recreating")
+        return
     op.create_table(
         "chat_history",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),

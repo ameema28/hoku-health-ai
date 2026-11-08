@@ -94,7 +94,7 @@ COPY --from=builder --chown=1000:1000 /opt/model-cache /home/hoku/.cache/hugging
 
 WORKDIR /app
 
-COPY --chown=1000:1000 alembic.ini pytest.ini ./
+COPY --chown=1000:1000 alembic.ini pytest.ini init_db.py ./
 COPY --chown=1000:1000 alembic/ ./alembic/
 COPY --chown=1000:1000 app/ ./app/
 
