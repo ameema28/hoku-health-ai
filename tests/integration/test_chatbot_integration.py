@@ -41,11 +41,14 @@ from app.core.rate_limit import reset_chat_rate_limiter
 from app.main import app
 from app.utils.constants import SAFETY_DISCLAIMER
 from tests.auth_utils import add_user, bearer
+from tests.db_utils import sqlite_test_url
 
 # ---------------------------------------------------------------------------
 # Test database (Postgres when TEST_DATABASE_URL is set, else SQLite file)
 # ---------------------------------------------------------------------------
-TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", "sqlite:///./test_integration.db")
+TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL") or sqlite_test_url(
+    "test_integration.db"
+)
 _connect_args = (
     {"check_same_thread": False} if TEST_DATABASE_URL.startswith("sqlite") else {}
 )

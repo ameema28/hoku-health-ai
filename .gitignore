@@ -15,6 +15,7 @@ project_dump.txt
 .idea/
 .pytest_cache/
 .coverage
+coverage.xml
 htmlcov/
 .DS_Store
 Thumbs.db

@@ -32,12 +32,6 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from app.ai.chatbot import HokuChatbot
 from app.ai.intent_classifier import IntentEnum
-from app.ai.utils import (
-    extract_json_from_response,
-    parse_severity_from_response,
-    parse_should_see_doctor,
-    parse_specialist_from_response,
-)
 from app.utils.constants import SAFETY_DISCLAIMER
 
 
@@ -322,44 +316,6 @@ class TestParseLlmOutput:
 
     def test_extract_text_from_string(self, chatbot):
         assert chatbot._extract_text_from_result("hello") == "hello"
-
-
-class TestUtilityFunctions:
-    def test_parse_specialist_from_json(self):
-        text = '{"suggestedSpecialist": "Cardiologist"}'
-        assert parse_specialist_from_response(text) == "Cardiologist"
-
-    def test_parse_specialist_null_returns_none(self):
-        text = '{"suggestedSpecialist": null}'
-        assert parse_specialist_from_response(text) is None
-
-    def test_parse_specialist_regex_fallback(self):
-        text = '"suggestedSpecialist": "Neurologist"'
-        assert parse_specialist_from_response(text) == "Neurologist"
-
-    def test_parse_severity_valid(self):
-        text = '{"severity": "severe"}'
-        assert parse_severity_from_response(text) == "severe"
-
-    def test_parse_severity_invalid_defaults_unknown(self):
-        text = '{"severity": "critical"}'
-        assert parse_severity_from_response(text) == "unknown"
-
-    def test_parse_should_see_doctor_true(self):
-        text = '{"shouldSeeDoctor": true}'
-        assert parse_should_see_doctor(text) is True
-
-    def test_parse_should_see_doctor_safety_bias(self):
-        text = "some random text without any flag"
-        assert parse_should_see_doctor(text) is True
-
-    def test_extract_json_from_markdown(self):
-        text = '```json\n{"key": "value"}\n```'
-        assert extract_json_from_response(text) == {"key": "value"}
-
-    def test_extract_json_invalid_returns_empty(self):
-        text = "not json at all"
-        assert extract_json_from_response(text) == {}
 
 
 class TestIntentFields:

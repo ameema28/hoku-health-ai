@@ -2,7 +2,7 @@
 Hoku Health Care - AI Package Initialization.
 
 Exports the core AI components for clean imports across the application.
-Day 8 additions: performance, caching, fallback_responses, llm_optimizer, connection_pool.
+Day 8 additions: performance, caching, fallback_responses, llm_optimizer.
 """
 
 from app.ai.chatbot import HokuChatbot

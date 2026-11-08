@@ -99,7 +99,9 @@ async def test_50_concurrent_users() -> None:
     from app.core.database import Base, get_db
 
     # ---- Isolated SQLite DB for the load run ----------------------------
-    db_url = os.getenv("LOAD_TEST_DATABASE_URL", "sqlite:///./test_load.db")
+    from tests.db_utils import sqlite_test_url
+
+    db_url = os.getenv("LOAD_TEST_DATABASE_URL") or sqlite_test_url("test_load.db")
     connect_args = {"check_same_thread": False} if db_url.startswith("sqlite") else {}
     engine = create_engine(db_url, connect_args=connect_args)
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

@@ -22,8 +22,9 @@ from app.core.database import Base, get_db
 from app.core.rate_limit import reset_chat_rate_limiter
 from app.main import app
 from tests.auth_utils import add_user, bearer
+from tests.db_utils import sqlite_test_url
 
-SQLALCHEMY_DATABASE_URL = "sqlite:///./test_endpoints.db"
+SQLALCHEMY_DATABASE_URL = sqlite_test_url("test_endpoints.db")
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
 )

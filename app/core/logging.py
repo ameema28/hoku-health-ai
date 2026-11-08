@@ -327,7 +327,14 @@ def configure_structured_logging(
     level: Optional[str] = None,
     log_format: Optional[str] = None,
     service_name: str = "hoku-health-backend",
-    quiet_loggers: Iterable[str] = ("uvicorn.access", "httpx", "httpcore", "urllib3"),
+    # "groq": its client logs full request options (the chat messages) at DEBUG.
+    quiet_loggers: Iterable[str] = (
+        "uvicorn.access",
+        "httpx",
+        "httpcore",
+        "urllib3",
+        "groq",
+    ),
 ) -> None:
     """
     Install the JSON formatter and redaction filter on the root logger.

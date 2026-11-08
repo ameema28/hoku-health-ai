@@ -107,6 +107,24 @@ def test_exception_path_logs_no_exception_text(chat, caplog):
     assert "RuntimeError" in _all_text(caplog)  # the type is still logged
 
 
+def test_groq_client_debug_logs_are_silenced_even_at_debug():
+    """The groq SDK logs full request bodies (patient messages) at DEBUG."""
+    from app.core.logging import configure_structured_logging
+
+    root = logging.getLogger()
+    saved_handlers, saved_level = list(root.handlers), root.level
+    try:
+        configure_structured_logging(level="DEBUG", log_format="plain")
+        assert not logging.getLogger("groq._base_client").isEnabledFor(logging.DEBUG)
+        assert not logging.getLogger("groq").isEnabledFor(logging.INFO)
+    finally:
+        for handler in list(root.handlers):
+            root.removeHandler(handler)
+        for handler in saved_handlers:
+            root.addHandler(handler)
+        root.setLevel(saved_level)
+
+
 def test_redaction_filter_scrubs_emitted_output():
     stream = io.StringIO()
     handler = logging.StreamHandler(stream)

@@ -13,6 +13,7 @@ import logging
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from tests.db_utils import sqlite_test_url
 from app.core.database import Base
 from app.crud import (
     create_chat_history,
@@ -27,7 +28,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-TEST_DB_URL = "sqlite:///./test_chat_history.db"
+TEST_DB_URL = sqlite_test_url("test_chat_history.db")
 
 
 def main() -> None:
