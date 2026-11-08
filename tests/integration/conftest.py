@@ -20,14 +20,25 @@ def mock_ai_boundaries():
             return (IntentEnum.EMERGENCY, 0.99)
         return (IntentEnum.GENERAL, 0.95)
 
-    def _fake_build_context(self, query, threshold=None):
-        return "- Q: What services does Hoku offer?\n  A: Home health, palliative, and hospice care."
+    from langchain_core.documents import Document
+
+    def _fake_retrieve(self, query, threshold=None):
+        return [
+            Document(
+                page_content="Q: What services does Hoku offer?",
+                metadata={
+                    "question": "What services does Hoku offer?",
+                    "answer": "Home health, palliative, and hospice care.",
+                    "score": 0.9,
+                },
+            )
+        ]
 
     with patch(
         "app.ai.intent_classifier.IntentClassifier.classify_intent",
         new=_fake_classify_intent,
     ), patch(
-        "app.ai.rag.HokuRAG.build_context",
-        new=_fake_build_context,
+        "app.ai.rag.HokuRAG.retrieve",
+        new=_fake_retrieve,
     ):
         yield

@@ -1,88 +1,142 @@
 """
-Hoku Health Care - Static Fallback Responses (Day 8).
+Hoku Health Care - Deterministic fallback replies.
 
-Pre-written, zero-latency fallback responses returned instantly (< 1ms)
-when the LLM or any pipeline stage times out. These responses maintain
-clinical safety standards even under degraded performance conditions.
+Used when the reply LLM is unavailable, times out, errors or returns an
+empty reply. The text is built only from content the request already
+retrieved: the top matching FAQ answer and the doctor suggestion from the
+database. Nothing is generated or invented here. When nothing was retrieved,
+a static intent-specific message is used. Every reply ends with the
+mandatory disclaimer, and the chatbot still runs the safety guardrails on
+the result.
 
-Design rationale:
-- Static strings require zero computation — no LLM, no DB, no parsing
-- Every fallback includes the mandatory clinical disclaimer
-- Emergency fallback is more urgent than general fallback
-- Booking fallback directs users to the self-service portal
-
-Saved execution time: ~2000-3000ms by skipping LLM generation entirely
-when the pipeline is under time pressure.
+(Emergency messages never reach this module: they are answered by the
+emergency detector before any LLM call.)
 """
 
+from typing import Any, Optional, Sequence
+
+from app.utils.constants import SAFETY_DISCLAIMER
+
 # ------------------------------------------------------------------
-# GENERAL FALLBACK
+# Static messages (nothing retrieved for the request)
 # ------------------------------------------------------------------
-# Returned when the main LLM times out or fails for non-emergency queries.
-# Emphasizes that the system is experiencing issues while maintaining
-# the mandatory clinical safety disclaimer.
 FALLBACK_GENERAL: str = (
-    "I'm sorry, I'm having trouble processing your request in time. "
-    "Please consult a doctor for proper diagnosis."
+    "I can't give a full answer right now. I can help with questions about "
+    "Hoku Health Care's home-care services, booking a visit, and general "
+    f"health information. {SAFETY_DISCLAIMER}"
 )
 
-# ------------------------------------------------------------------
-# EMERGENCY FALLBACK
-# ------------------------------------------------------------------
-# Returned ONLY if emergency detection itself somehow fails or times out
-# (extremely unlikely — Tier 1 regex is < 1ms). This is a last-resort
-# safety net that still directs the user to emergency services.
-FALLBACK_EMERGENCY: str = (
-    "This may be serious. Please contact emergency services immediately "
-    "or visit the nearest ER. Please consult a doctor for proper diagnosis."
+FALLBACK_SYMPTOM: str = (
+    "I can't give a full answer right now. If your symptoms are severe or "
+    "getting worse, contact a doctor or your local emergency number. "
+    f"{SAFETY_DISCLAIMER}"
 )
 
-# ------------------------------------------------------------------
-# BOOKING FALLBACK
-# ------------------------------------------------------------------
-# Returned when the pipeline times out during a booking-intent query.
-# Directs the user to the self-service dashboard rather than leaving
-# them without guidance.
+FALLBACK_MEDICATION: str = (
+    "I can't advise on medication. Please ask your doctor or pharmacist. "
+    f"{SAFETY_DISCLAIMER}"
+)
+
 FALLBACK_BOOKING: str = (
     "You can book an appointment directly through the patient dashboard. "
-    "Please consult a doctor for proper diagnosis."
+    f"{SAFETY_DISCLAIMER}"
 )
 
-# ------------------------------------------------------------------
-# RAG TIMEOUT FALLBACK
-# ------------------------------------------------------------------
-# Returned when RAG retrieval times out but the LLM is still available.
-# The chatbot proceeds with general knowledge instead of grounded FAQs.
-FALLBACK_RAG_TIMEOUT: str = (
-    "I'm looking into your question. In the meantime, please consult a "
-    "doctor for proper diagnosis."
+FALLBACK_EMERGENCY: str = (
+    "This may be serious. Please contact emergency services immediately "
+    f"or visit the nearest ER. {SAFETY_DISCLAIMER}"
 )
-
-# ------------------------------------------------------------------
-# SAFETY 3-STRIKE FALLBACK
-# ------------------------------------------------------------------
-# Re-exported from config for consistency. This is the absolute last
-# resort when even safety sanitization fails repeatedly.
-from app.ai.config import ai_settings  # noqa: E402
-
-FALLBACK_SAFETY_3_STRIKE: str = ai_settings.SAFETY_FALLBACK_RESPONSE
 
 
 def get_fallback_for_intent(intent: str) -> str:
     """
-    Select the most appropriate fallback response based on intent.
+    Static fallback for an intent when nothing was retrieved.
 
     Args:
-        intent: Classified intent string (e.g., "booking", "emergency").
+        intent: Classified intent string (e.g., "booking", "symptom").
 
     Returns:
-        str: The matching fallback response, defaulting to FALLBACK_GENERAL.
+        str: The matching message, defaulting to FALLBACK_GENERAL.
     """
     intent_lower = (intent or "").lower()
-
     if intent_lower == "emergency":
         return FALLBACK_EMERGENCY
     if intent_lower == "booking":
         return FALLBACK_BOOKING
-
+    if intent_lower == "symptom":
+        return FALLBACK_SYMPTOM
+    if intent_lower == "medication":
+        return FALLBACK_MEDICATION
     return FALLBACK_GENERAL
+
+
+def _field(obj: Any, name: str) -> Any:
+    """Read a field from a DoctorSuggestion model or its dict dump."""
+    if isinstance(obj, dict):
+        return obj.get(name)
+    return getattr(obj, name, None)
+
+
+def doctor_sentence(doctor_suggestion: Any) -> str:
+    """
+    One sentence about the suggested doctor, from database fields only.
+
+    The demo page and API clients show the full suggestion (including the
+    available slots) from ``doctor_suggestion``, so the text does not
+    repeat the slot list.
+    """
+    specialist = _field(doctor_suggestion, "specialist")
+    if not specialist:
+        return ""
+    name = _field(doctor_suggestion, "doctor_name")
+    experience = _field(doctor_suggestion, "experience")
+    requested = _field(doctor_suggestion, "requested_specialist")
+
+    parts = []
+    if requested:
+        parts.append(
+            f"No {requested} is available right now, so a {specialist} is "
+            "suggested as a first contact."
+        )
+    else:
+        parts.append(f"A {specialist} can look into this.")
+    if name:
+        detail = f"{name} ({specialist}"
+        if isinstance(experience, int) and experience > 0:
+            detail += f", {experience} years of experience"
+        parts.append(f"Suggested doctor: {detail}).")
+    return " ".join(parts)
+
+
+def build_fallback_reply(
+    intent: str,
+    faq_docs: Optional[Sequence[Any]] = None,
+    doctor_suggestion: Any = None,
+) -> str:
+    """
+    Return a deterministic reply from content retrieved for this request.
+
+    Order: the top FAQ answer, then the doctor sentence. If neither exists,
+    the static message for the intent. Always ends with the disclaimer.
+
+    Args:
+        intent: Classified intent value.
+        faq_docs: FAQ documents that passed the retrieval threshold
+            (``metadata["answer"]`` is used from the first one).
+        doctor_suggestion: DoctorSuggestion (or its dict) from the DB lookup.
+    """
+    parts = []
+    if faq_docs:
+        answer = str(getattr(faq_docs[0], "metadata", {}).get("answer", "")).strip()
+        if answer:
+            parts.append(answer)
+    if doctor_suggestion is not None:
+        sentence = doctor_sentence(doctor_suggestion)
+        if sentence:
+            parts.append(sentence)
+
+    if not parts:
+        return get_fallback_for_intent(intent)
+
+    parts.append(SAFETY_DISCLAIMER)
+    return " ".join(parts)

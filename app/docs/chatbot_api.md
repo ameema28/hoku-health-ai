@@ -272,3 +272,7 @@ logs.
   triage trivial.
 - `doctor_suggestion` is `null` for booking, medication, and emergency
   intents by design — render it only when present.
+- `fallback_used` is `true` when the reply LLM was unavailable, timed out
+  or failed. The reply is then built from the matched FAQ answer and the
+  doctor suggestion (or is a fixed message) and still ends with the
+  disclaimer.

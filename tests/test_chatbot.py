@@ -222,7 +222,7 @@ class TestGetResponse:
                 result = await chatbot.get_response(
                     "I have a headache", user_id=1, db=mock_db
                 )
-                assert "sorry" in result["reply"].lower()
+                assert result["fallback_used"] is True
                 assert SAFETY_DISCLAIMER in result["reply"]
                 assert result["shouldSeeDoctor"] is True
 
@@ -238,7 +238,7 @@ class TestGetResponse:
                 result = await chatbot.get_response(
                     "I have a headache", user_id=1, db=mock_db
                 )
-                assert "sorry" in result["reply"].lower()
+                assert result["fallback_used"] is True
                 assert SAFETY_DISCLAIMER in result["reply"]
                 assert result["shouldSeeDoctor"] is True
 
@@ -271,7 +271,8 @@ class TestGetResponse:
             type(chatbot), "main_llm", new_callable=PropertyMock, return_value=None
         ):
             result = await chatbot.get_response("test", user_id=1, db=mock_db)
-        assert "sorry" in result["reply"].lower()
+        assert result["fallback_used"] is True
+        assert SAFETY_DISCLAIMER in result["reply"]
         assert result["shouldSeeDoctor"] is True
 
 

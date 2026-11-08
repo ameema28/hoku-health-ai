@@ -169,4 +169,5 @@ async def process_chat(
             "shouldSeeDoctor": True,
             "intent": "general",
             "confidence": 0.0,
+            "fallback_used": True,
         }

@@ -51,6 +51,7 @@ except ImportError as _import_exc:
 from app.ai.caching import ResponseCache  # Day 8: In-memory response cache
 from app.ai.config import ai_settings
 from app.ai.emergency_detector import EmergencyDetector
+from app.ai.fallback_responses import build_fallback_reply
 from app.ai.intent_classifier import IntentClassifier, IntentEnum
 from app.ai.llm_optimizer import LLMFactory, compress_prompt  # Day 8: LLM optimization
 from app.ai.memory import HokuConversationMemory
@@ -59,7 +60,7 @@ from app.ai.ai_performance import (
     generate_with_timeout,
 )  # Day 8: Performance layer
 from app.ai.prompts import chat_prompt_template, rag_chat_prompt_template
-from app.ai.rag import HokuRAG
+from app.ai.rag import HokuRAG, format_faq_context
 from app.ai.safety_guardrails import SafetyGuardrails
 from app.ai.specialist_mapper import SpecialistMapper
 from app.ai.symptom_extractor import extract_symptoms_from_text
@@ -76,8 +77,9 @@ logger = logging.getLogger(__name__)
 #: Fallback specialty when the mapped one has no available doctor.
 GENERAL_PHYSICIAN = "General Physician"
 
-# Day 5: intents for which a Hoku FAQ lookup is worthwhile.
-_RAG_ELIGIBLE_INTENTS = {IntentEnum.GENERAL, IntentEnum.SYMPTOM}
+# Intents for which a Hoku FAQ lookup is worthwhile. BOOKING is included:
+# several seeded FAQs answer booking questions (how to book, wait times).
+_RAG_ELIGIBLE_INTENTS = {IntentEnum.GENERAL, IntentEnum.SYMPTOM, IntentEnum.BOOKING}
 
 # Day 6: intents eligible for specialist suggestion flow
 _SPECIALIST_ELIGIBLE_INTENTS = {IntentEnum.SYMPTOM, IntentEnum.GENERAL}
@@ -416,7 +418,9 @@ class HokuChatbot:
                     severity="high",
                 )
             except Exception as log_exc:
-                logger.warning("Failed to log emergency safety event: %s", log_exc)
+                logger.warning(
+                    "Failed to log emergency safety event: %s", type(log_exc).__name__
+                )
 
             emergency_response = EmergencyDetector.get_urgency_response(urgency)
             total_elapsed = time.perf_counter() - overall_start
@@ -499,40 +503,46 @@ class HokuChatbot:
             optimizer.enforce_budget("memory_load", memory_start)
             return history_list, memory_elapsed
 
-        async def _rag_lookup_task() -> str:
+        async def _rag_lookup_task() -> List[Any]:
+            """FAQ documents above the threshold ([] on miss/timeout/error)."""
             rag_start = time.perf_counter()
-            faq_context = ""
+            docs: List[Any] = []
             try:
-                build_ctx = getattr(self.rag, "build_context", None)
-                if build_ctx is None or not callable(build_ctx):
-                    faq_context = ""
-                elif _MagicMock is not None and isinstance(build_ctx, _MagicMock):
-                    faq_context = ""
+                retrieve = getattr(self.rag, "retrieve", None)
+                if retrieve is None or not callable(retrieve):
+                    docs = []
+                elif _MagicMock is not None and isinstance(retrieve, _MagicMock):
+                    docs = []
                 else:
-                    rag_task = asyncio.to_thread(build_ctx, message)
-                    faq_context = await asyncio.wait_for(
-                        rag_task, timeout=ai_settings.RAG_LOOKUP_TIMEOUT
+                    rag_task = asyncio.to_thread(retrieve, message)
+                    docs = list(
+                        await asyncio.wait_for(
+                            rag_task, timeout=ai_settings.RAG_LOOKUP_TIMEOUT
+                        )
                     )
             except asyncio.TimeoutError:
                 logger.warning(
                     "RAG lookup timed out after %.3fs, skipping RAG",
                     ai_settings.RAG_LOOKUP_TIMEOUT,
                 )
-                faq_context = ""
+                docs = []
             except Exception as exc:
                 logger.warning(
                     "RAG lookup failed, falling back to general knowledge: %s",
                     type(exc).__name__,
                 )
-                faq_context = ""
+                docs = []
             optimizer.enforce_budget("rag_retrieve", rag_start)
-            return faq_context
+            return docs
 
-        intent_result, memory_result, faq_context = await asyncio.gather(
+        intent_result, memory_result, rag_result = await asyncio.gather(
             _classify_intent_task(),
             _load_memory_task(),
             _rag_lookup_task(),
             return_exceptions=True,
+        )
+        faq_docs: List[Any] = (
+            [] if isinstance(rag_result, BaseException) else list(rag_result)
         )
 
         if isinstance(intent_result, Exception):
@@ -560,20 +570,22 @@ class HokuChatbot:
 
         # Filter RAG context based on intent
         use_rag = False
-        if intent in _RAG_ELIGIBLE_INTENTS and faq_context:
+        faq_context = ""
+        if intent in _RAG_ELIGIBLE_INTENTS and faq_docs:
             use_rag = True
+            faq_context = format_faq_context(faq_docs)
             logger.info(
                 "RAG context accepted for user_id=%s (intent=%s)",
                 user_id,
                 intent.value,
             )
         else:
-            if faq_context and intent not in _RAG_ELIGIBLE_INTENTS:
+            if faq_docs and intent not in _RAG_ELIGIBLE_INTENTS:
                 logger.debug(
                     "Discarding RAG context for intent=%s (not RAG-eligible)",
                     intent.value,
                 )
-            faq_context = ""
+            faq_docs = []
 
         # ---------------------------------------------------------------
         # Step 3: Response Cache Lookup
@@ -672,15 +684,22 @@ class HokuChatbot:
         # ---------------------------------------------------------------
         # Step 6: Check main LLM availability
         # ---------------------------------------------------------------
+        def _fallback(reason: str) -> Dict[str, Any]:
+            """Deterministic reply from this request's FAQ docs and doctor."""
+            metrics.record_latency("/api/ai/chat", time.perf_counter() - overall_start)
+            return self._fallback_response(
+                reason,
+                intent=intent.value,
+                confidence=confidence,
+                faq_docs=faq_docs,
+                doctor_suggestion=doctor_suggestion,
+                user_id=user_id,
+                db=db,
+            )
+
         if self.main_llm is None:
             logger.error("Main LLM unavailable -- returning fallback")
-            fallback = self._fallback_response("LLM initialization failed")
-            fallback["intent"] = intent.value
-            fallback["confidence"] = confidence
-            fallback["doctor_suggestion"] = None
-            total_elapsed = time.perf_counter() - overall_start
-            metrics.record_latency("/api/ai/chat", total_elapsed)
-            return fallback
+            return _fallback("LLM initialization failed")
 
         # ---------------------------------------------------------------
         # Step 7: LLM Generation with Strict Budgeting
@@ -695,15 +714,7 @@ class HokuChatbot:
                 _MIN_LLM_TIMEOUT,
                 user_id,
             )
-            fallback = self._fallback_response("budget_exhausted")
-            fallback["intent"] = intent.value
-            fallback["confidence"] = confidence
-            fallback["doctor_suggestion"] = (
-                doctor_suggestion.model_dump() if doctor_suggestion else None
-            )
-            total_elapsed = time.perf_counter() - overall_start
-            metrics.record_latency("/api/ai/chat", total_elapsed)
-            return fallback
+            return _fallback("budget_exhausted")
 
         try:
             compressed_history = compress_prompt(history_list, max_messages=3)
@@ -742,15 +753,7 @@ class HokuChatbot:
                     remaining_budget,
                     llm_timeout,
                 )
-                fallback = self._fallback_response("llm_timeout")
-                fallback["intent"] = intent.value
-                fallback["confidence"] = confidence
-                fallback["doctor_suggestion"] = (
-                    doctor_suggestion.model_dump() if doctor_suggestion else None
-                )
-                total_elapsed = time.perf_counter() - overall_start
-                metrics.record_latency("/api/ai/chat", total_elapsed)
-                return fallback
+                return _fallback("llm_timeout")
 
             llm_elapsed = time.perf_counter() - llm_start
             logger.info(
@@ -846,6 +849,7 @@ class HokuChatbot:
                 "doctor_suggestion": doctor_suggestion.model_dump()
                 if doctor_suggestion
                 else None,
+                "fallback_used": False,
             }
 
             total_elapsed = time.perf_counter() - overall_start
@@ -869,14 +873,7 @@ class HokuChatbot:
         except asyncio.TimeoutError:
             elapsed = time.perf_counter() - overall_start
             logger.warning("Groq timeout after %.3fs for user_id=%s", elapsed, user_id)
-            metrics.record_latency("/api/ai/chat", elapsed)
-            fallback = self._fallback_response("timeout")
-            fallback["intent"] = intent.value
-            fallback["confidence"] = confidence
-            fallback["doctor_suggestion"] = (
-                doctor_suggestion.model_dump() if doctor_suggestion else None
-            )
-            return fallback
+            return _fallback("timeout")
 
         except Exception as exc:
             elapsed = time.perf_counter() - overall_start
@@ -887,14 +884,7 @@ class HokuChatbot:
                 user_id,
                 type(exc).__name__,
             )
-            metrics.record_latency("/api/ai/chat", elapsed)
-            fallback = self._fallback_response(type(exc).__name__)
-            fallback["intent"] = intent.value
-            fallback["confidence"] = confidence
-            fallback["doctor_suggestion"] = (
-                doctor_suggestion.model_dump() if doctor_suggestion else None
-            )
-            return fallback
+            return _fallback(type(exc).__name__)
 
     @staticmethod
     def _apply_compressed_history(
@@ -1018,18 +1008,44 @@ class HokuChatbot:
 
         return parsed
 
-    def _fallback_response(self, reason: str = "unknown") -> Dict[str, Any]:
-        """Safe fallback when LLM fails."""
+    def _fallback_response(
+        self,
+        reason: str = "unknown",
+        *,
+        intent: str = "general",
+        confidence: float = 0.0,
+        faq_docs: Optional[List[Any]] = None,
+        doctor_suggestion: Optional[DoctorSuggestion] = None,
+        user_id: Optional[int] = None,
+        db: Optional[Session] = None,
+    ) -> Dict[str, Any]:
+        """
+        Deterministic reply when the reply LLM is unavailable, times out or
+        fails: built from the FAQ answer and doctor suggestion retrieved for
+        this request (see ``build_fallback_reply``), then passed through the
+        same safety guardrails as an LLM reply. ``fallback_used`` is True.
+        """
         logger.info("Fallback response (reason=%s)", reason)
+        reply = build_fallback_reply(intent, faq_docs, doctor_suggestion)
+        if faq_docs or doctor_suggestion is not None:
+            # Retrieved text is checked like an LLM reply; the static
+            # messages are fixed strings covered by tests.
+            reply, _violations, _severity = SafetyGuardrails.apply_3_strike_safety(
+                text=reply, user_id=user_id or 0, db=db
+            )
+        if SAFETY_DISCLAIMER not in reply:
+            reply = f"{reply} {SAFETY_DISCLAIMER}"
         return {
-            "reply": (
-                "I'm sorry, I couldn't process your request right now. "
-                f"{SAFETY_DISCLAIMER}"
-            ),
-            "suggestedSpecialist": None,
+            "reply": reply,
+            "suggestedSpecialist": doctor_suggestion.specialist
+            if doctor_suggestion is not None
+            else None,
             "severity": "unknown",
             "shouldSeeDoctor": True,
-            "intent": "general",
-            "confidence": 0.0,
-            "doctor_suggestion": None,
+            "intent": intent,
+            "confidence": confidence,
+            "doctor_suggestion": doctor_suggestion.model_dump()
+            if doctor_suggestion is not None
+            else None,
+            "fallback_used": True,
         }

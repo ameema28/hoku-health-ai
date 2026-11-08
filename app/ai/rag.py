@@ -323,13 +323,13 @@ class HokuRAG:
         )
         return results
 
-    def build_context(self, query: str, threshold: Optional[float] = None) -> str:
+    def retrieve(self, query: str, threshold: Optional[float] = None) -> List[Document]:
         """
-        Build a context string from the top-k FAQ answers for a query.
+        Return the top-k FAQ documents for a query, or [] when the top
+        result's similarity is below ``threshold``.
 
-        If the top result's similarity is below `threshold`, returns ""
-        so the chatbot falls back to general LLM knowledge rather than
-        grounding on a loosely related (or irrelevant) FAQ.
+        The chatbot grounds its prompt on these documents and builds its
+        deterministic fallback reply from them (the top FAQ answer).
         """
         effective_threshold = (
             threshold if threshold is not None else self.similarity_threshold
@@ -337,7 +337,7 @@ class HokuRAG:
         results = self.similarity_search(query, k=self.top_k)
 
         if not results:
-            return ""
+            return []
 
         top_score = results[0].metadata.get("score", 0.0)
         if top_score < effective_threshold:
@@ -346,7 +346,7 @@ class HokuRAG:
                 top_score,
                 effective_threshold,
             )
-            return ""
+            return []
 
         # Day 8.1: previously only the REJECT path logged, so a working
         # retrieval was indistinguishable from a silently disabled one.
@@ -356,11 +356,21 @@ class HokuRAG:
             effective_threshold,
             len(results),
         )
+        return results
 
-        context_parts = []
-        for doc in results:
-            question = doc.metadata.get("question", "")
-            answer = doc.metadata.get("answer", "")
-            context_parts.append(f"- Q: {question}\n  A: {answer}")
+    def build_context(self, query: str, threshold: Optional[float] = None) -> str:
+        """
+        Build a context string from the top-k FAQ answers for a query, or
+        "" when retrieval finds nothing above the threshold.
+        """
+        return format_faq_context(self.retrieve(query, threshold))
 
-        return "\n".join(context_parts)
+
+def format_faq_context(docs: List[Document]) -> str:
+    """Format retrieved FAQ documents as the prompt's FAQ context block."""
+    context_parts = []
+    for doc in docs:
+        question = doc.metadata.get("question", "")
+        answer = doc.metadata.get("answer", "")
+        context_parts.append(f"- Q: {question}\n  A: {answer}")
+    return "\n".join(context_parts)

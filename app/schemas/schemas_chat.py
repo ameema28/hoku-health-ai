@@ -114,6 +114,14 @@ class ChatMessageResponse(BaseModel):
         None,
         description="Recommended doctor with specialty, experience, and availability.",
     )
+    fallback_used: bool = Field(
+        False,
+        description=(
+            "True when the reply LLM was unavailable, timed out or failed and "
+            "the reply was built from retrieved FAQ and doctor data (or a "
+            "fixed message) instead."
+        ),
+    )
 
 
 class ChatHistoryCreate(BaseModel):
