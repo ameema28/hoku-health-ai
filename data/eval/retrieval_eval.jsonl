@@ -1,0 +1,40 @@
+{"query": "What does Hoku Health Care actually do?", "expected": "What home healthcare services does Hoku Health Care offer?"}
+{"query": "Do you offer physiotherapy or nursing at home?", "expected": "What home healthcare services does Hoku Health Care offer?"}
+{"query": "I live in Lahore, can I get a home nurse?", "expected": "Do you provide home nursing care in Lahore?"}
+{"query": "Do your nurses do wound dressing in Lahore?", "expected": "Do you provide home nursing care in Lahore?"}
+{"query": "Are you in the UAE?", "expected": "Is Hoku Health Care available in Dubai?"}
+{"query": "Do you have home care in Dubai?", "expected": "Is Hoku Health Care available in Dubai?"}
+{"query": "Do you work in England?", "expected": "Does Hoku Health Care operate in the UK?"}
+{"query": "Is Hoku available in the United Kingdom?", "expected": "Does Hoku Health Care operate in the UK?"}
+{"query": "How can I request a nurse visit?", "expected": "How do I book a home nurse visit?"}
+{"query": "Where do I book a nurse to come to my house?", "expected": "How do I book a home nurse visit?"}
+{"query": "Can I cancel my booking?", "expected": "Can I reschedule or cancel an appointment?"}
+{"query": "How do I change the time of my appointment?", "expected": "Can I reschedule or cancel an appointment?"}
+{"query": "Can I talk to a doctor online?", "expected": "How do I book a doctor teleconsultation?"}
+{"query": "How does a video consultation work?", "expected": "How do I book a doctor teleconsultation?"}
+{"query": "How quickly will a home visit be confirmed?", "expected": "What is the typical wait time for a home visit booking?"}
+{"query": "How long do I wait for a nurse visit?", "expected": "What is the typical wait time for a home visit booking?"}
+{"query": "Can a nurse give injections at my home?", "expected": "Can Hoku nurses administer prescribed injections at home?"}
+{"query": "Can you send someone to give me a B12 injection?", "expected": "Can Hoku nurses administer prescribed injections at home?"}
+{"query": "Do you have medicine reminders?", "expected": "Do you offer medication reminder services?"}
+{"query": "Can the app remind me about my pills?", "expected": "Do you offer medication reminder services?"}
+{"query": "Can Hoku AI tell me about drug interactions?", "expected": "Can I ask Hoku AI about drug interactions?"}
+{"query": "Can I refill my prescription through Hoku?", "expected": "Does Hoku Health Care help refill prescriptions?"}
+{"query": "Do you deliver medicines from a pharmacy?", "expected": "Does Hoku Health Care help refill prescriptions?"}
+{"query": "I have a fever and my body hurts", "expected": "What should I do if I have a fever and body aches?"}
+{"query": "Which specialists do you have?", "expected": "What specialists are available through Hoku?"}
+{"query": "Do you have dermatologists or cardiologists?", "expected": "What specialists are available through Hoku?"}
+{"query": "Do you look after elderly patients?", "expected": "Is Hoku Health Care suitable for elderly care?"}
+{"query": "Is my health data safe with you?", "expected": "How is my health data protected on the Hoku platform?"}
+{"query": "What symptoms mean I need emergency care?", "expected": "What are the signs I should seek emergency care instead of home care?"}
+{"query": "What number do I call in an emergency in Pakistan?", "expected": "Does Hoku Health Care handle medical emergencies directly?"}
+{"query": "Do you help patients recover after an operation?", "expected": "What post-surgical care does Hoku provide at home?"}
+{"query": "What time do your nurses visit?", "expected": "What are Hoku Health Care's operating hours?"}
+{"query": "What is the weather in Karachi today?", "expected": null}
+{"query": "Write me a poem about the sea", "expected": null}
+{"query": "What is the price of gold today?", "expected": null}
+{"query": "How do I fix a flat bicycle tyre?", "expected": null}
+{"query": "Book me a taxi to the airport", "expected": null}
+{"query": "Where can I buy cheap shoes in Dubai?", "expected": null}
+{"query": "Explain how Python decorators work", "expected": null}
+{"query": "Can you book a table at a restaurant in Lahore?", "expected": null}

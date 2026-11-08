@@ -98,7 +98,10 @@ class EmbeddingManager:
             return [0.0] * self.dimension
 
         try:
-            vector = self.model.encode(text, normalize_embeddings=True)
+            # No progress bar: it would write to stderr on every query.
+            vector = self.model.encode(
+                text, normalize_embeddings=True, show_progress_bar=False
+            )
             return vector.tolist()
         except Exception as exc:
             logger.warning("Embedding generation failed: %s", type(exc).__name__)
@@ -121,7 +124,9 @@ class EmbeddingManager:
             return [[0.0] * self.dimension for _ in texts]
 
         try:
-            vectors = self.model.encode(texts, normalize_embeddings=True)
+            vectors = self.model.encode(
+                texts, normalize_embeddings=True, show_progress_bar=False
+            )
             return [v.tolist() for v in vectors]
         except Exception as exc:
             logger.warning("Batch embedding generation failed: %s", type(exc).__name__)
