@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.ai.chatbot import HokuChatbot
-from app.utils.constants import SAFETY_DISCLAIMER
+from app.utils.constants import has_disclaimer
 
 
 @pytest.fixture
@@ -49,8 +49,9 @@ class TestChatbotFallbackPaths:
             )
 
         assert "reply" in result
-        assert SAFETY_DISCLAIMER in result["reply"]
-        assert result["shouldSeeDoctor"] is True
+        assert has_disclaimer(result["reply"])
+        # Neither message is a health question.
+        assert result["shouldSeeDoctor"] is False
         assert result["intent"] in (
             "general",
             "symptom",
@@ -74,8 +75,9 @@ class TestChatbotFallbackPaths:
             MockMem.return_value.load_memory.return_value = mock_memory
             result = await bot.get_response("General question", user_id=1, db=mock_db)
 
-        assert SAFETY_DISCLAIMER in result["reply"]
-        assert result["shouldSeeDoctor"] is True
+        assert has_disclaimer(result["reply"])
+        # Neither message is a health question.
+        assert result["shouldSeeDoctor"] is False
 
     @pytest.mark.asyncio
     async def test_malformed_llm_output_still_safe(
@@ -94,7 +96,7 @@ class TestChatbotFallbackPaths:
             MockMem.return_value.load_memory.return_value = mock_memory
             result = await bot.get_response("Any tips?", user_id=1, db=mock_db)
 
-        assert SAFETY_DISCLAIMER in result["reply"]
+        assert has_disclaimer(result["reply"])
 
 
 class TestParseAndFallbackHelpers:
@@ -128,8 +130,8 @@ class TestParseAndFallbackHelpers:
         """The hardcoded fallback always carries the disclaimer."""
         bot = HokuChatbot()
         fallback = bot._fallback_response("test reason")
-        assert SAFETY_DISCLAIMER in fallback["reply"]
-        assert fallback["shouldSeeDoctor"] is True
+        assert has_disclaimer(fallback["reply"])
+        assert fallback["shouldSeeDoctor"] is False
 
     def test_extract_text_from_string_and_dict(self) -> None:
         """Text extraction handles both str and dict chain returns."""

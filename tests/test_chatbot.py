@@ -33,7 +33,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from app.ai.chatbot import HokuChatbot
 from app.ai.config import ai_settings as _ai_settings
 from app.ai.intent_classifier import IntentEnum
-from app.utils.constants import SAFETY_DISCLAIMER
+from app.utils.constants import GENERAL_DISCLAIMER, SAFETY_DISCLAIMER
 
 SAFETY_FALLBACK = _ai_settings.SAFETY_FALLBACK_RESPONSE
 
@@ -273,8 +273,9 @@ class TestGetResponse:
         ):
             result = await chatbot.get_response("test", user_id=1, db=mock_db)
         assert result["fallback_used"] is True
-        assert SAFETY_DISCLAIMER in result["reply"]
-        assert result["shouldSeeDoctor"] is True
+        # "test" is not a health question: general closing, no doctor advice.
+        assert result["reply"].endswith(GENERAL_DISCLAIMER)
+        assert result["shouldSeeDoctor"] is False
 
 
 class TestParseLlmOutput:

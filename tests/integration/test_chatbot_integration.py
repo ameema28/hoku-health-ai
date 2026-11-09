@@ -39,7 +39,7 @@ from sqlalchemy.orm import sessionmaker
 from app.core.database import Base, get_db
 from app.core.rate_limit import reset_chat_rate_limiter
 from app.main import app
-from app.utils.constants import SAFETY_DISCLAIMER
+from app.utils.constants import SAFETY_DISCLAIMER, has_disclaimer
 from tests.auth_utils import add_user, bearer
 from tests.db_utils import sqlite_test_url
 
@@ -267,7 +267,7 @@ def test_rag_grounded_response_uses_faq_context(
 
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert SAFETY_DISCLAIMER in body["reply"]
+    assert has_disclaimer(body["reply"])
     assert body["intent"] in ("general", "symptom")
 
 
@@ -292,7 +292,8 @@ def test_reply_always_contains_disclaimer_even_if_llm_omits_it(
         )
 
     assert resp.status_code == 200, resp.text
-    assert SAFETY_DISCLAIMER in resp.json()["reply"]
+    # A general question gets the general closing line.
+    assert has_disclaimer(resp.json()["reply"])
 
 
 # ---------------------------------------------------------------------------

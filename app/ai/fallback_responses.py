@@ -15,7 +15,11 @@ emergency detector before any LLM call.)
 
 from typing import Any, Optional, Sequence
 
-from app.utils.constants import SAFETY_DISCLAIMER
+from app.utils.constants import (
+    GENERAL_DISCLAIMER,
+    SAFETY_DISCLAIMER,
+    is_health_reply,
+)
 
 # ------------------------------------------------------------------
 # Static messages (nothing retrieved for the request)
@@ -23,7 +27,7 @@ from app.utils.constants import SAFETY_DISCLAIMER
 FALLBACK_GENERAL: str = (
     "I can't give a full answer right now. I can help with questions about "
     "Hoku Health Care's home-care services, booking a visit, and general "
-    f"health information. {SAFETY_DISCLAIMER}"
+    f"health information. {GENERAL_DISCLAIMER}"
 )
 
 FALLBACK_SYMPTOM: str = (
@@ -39,7 +43,7 @@ FALLBACK_MEDICATION: str = (
 
 FALLBACK_BOOKING: str = (
     "Booking is not part of this demo, so I can't make, change or cancel "
-    f"appointments here. {SAFETY_DISCLAIMER}"
+    f"appointments here. {GENERAL_DISCLAIMER}"
 )
 
 FALLBACK_EMERGENCY: str = (
@@ -100,7 +104,8 @@ def build_fallback_reply(
     Return a deterministic reply from content retrieved for this request.
 
     Order: the top FAQ answer, then the doctor sentence. If neither exists,
-    the static message for the intent. Always ends with the disclaimer.
+    the static message for the intent. Always ends with a disclaimer (the
+    medical one for health replies, the general one otherwise).
 
     Args:
         intent: Classified intent value.
@@ -121,5 +126,9 @@ def build_fallback_reply(
     if not parts:
         return get_fallback_for_intent(intent)
 
-    parts.append(SAFETY_DISCLAIMER)
+    parts.append(
+        SAFETY_DISCLAIMER
+        if is_health_reply(intent, doctor_suggestion)
+        else GENERAL_DISCLAIMER
+    )
     return " ".join(parts)

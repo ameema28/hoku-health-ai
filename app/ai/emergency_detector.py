@@ -23,7 +23,7 @@ import logging
 import re
 from typing import Any, Dict, List, Tuple
 
-from app.utils.constants import SAFETY_DISCLAIMER
+from app.utils.constants import SAFETY_DISCLAIMER, SELF_HARM_CLOSING
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +160,7 @@ class EmergencyDetector:
                 "contact your local emergency number or a crisis line in your "
                 "country now. If you can, tell someone near you how you are "
                 "feeling.\n\n"
-                f"{SAFETY_DISCLAIMER}"
+                f"{SELF_HARM_CLOSING}"
             ),
             "suggestedSpecialist": None,
             "severity": "severe",

@@ -69,7 +69,7 @@ from app.schemas.schemas_doctor import (
     DoctorAvailability as DoctorAvailabilitySchema,
     DoctorSuggestion,
 )
-from app.utils.constants import SAFETY_DISCLAIMER
+from app.utils.constants import apply_disclaimer, is_health_reply
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +100,38 @@ def _strip_markdown(reply: str) -> str:
     text = _MD_HEADING.sub("", text)
     text = _MD_LIST.sub("", text)
     return text.strip()
+
+
+_SYMPTOM_KEYWORDS = (
+    "pain",
+    "fever",
+    "headache",
+    "hurt",
+    "ache",
+    "sick",
+    "nausea",
+    "dizzy",
+    "cough",
+    "breath",
+    "chest",
+    "rash",
+    "swelling",
+    "bleeding",
+    "vomit",
+    "diarrhea",
+    "fatigue",
+    "tired",
+    "weakness",
+    "symptom",
+    "not feeling",
+    "unwell",
+)
+
+
+def _has_symptom_wording(message: str) -> bool:
+    """True if the message contains a common symptom word."""
+    lowered = message.lower()
+    return any(word in lowered for word in _SYMPTOM_KEYWORDS)
 
 
 class HokuChatbot:
@@ -578,34 +610,12 @@ class HokuChatbot:
         # Only for SYMPTOM, or GENERAL with symptom keywords.
         # ---------------------------------------------------------------
         doctor_suggestion: Optional[DoctorSuggestion] = None
+        symptom_wording = False
         if intent == IntentEnum.SYMPTOM:
             doctor_suggestion = await self._lookup_doctor_suggestion(message, db)
         elif intent == IntentEnum.GENERAL:
-            symptom_keywords = [
-                "pain",
-                "fever",
-                "headache",
-                "hurt",
-                "ache",
-                "sick",
-                "nausea",
-                "dizzy",
-                "cough",
-                "breath",
-                "chest",
-                "rash",
-                "swelling",
-                "bleeding",
-                "vomit",
-                "diarrhea",
-                "fatigue",
-                "tired",
-                "weakness",
-                "symptom",
-                "not feeling",
-                "unwell",
-            ]
-            if any(kw in message.lower() for kw in symptom_keywords):
+            symptom_wording = _has_symptom_wording(message)
+            if symptom_wording:
                 doctor_suggestion = await self._lookup_doctor_suggestion(message, db)
             else:
                 logger.debug("Skipping doctor suggestion for non-symptom GENERAL query")
@@ -634,6 +644,7 @@ class HokuChatbot:
                 doctor_suggestion=doctor_suggestion,
                 user_id=user_id,
                 db=db,
+                symptom_wording=symptom_wording,
             )
 
         if self.main_llm is None:
@@ -713,9 +724,14 @@ class HokuChatbot:
 
             parsed = self._parse_llm_output(raw_text)
             reply = parsed.get("reply", "")
-            if SAFETY_DISCLAIMER not in reply:
-                reply = f"{reply} {SAFETY_DISCLAIMER}"
+            health_reply = is_health_reply(
+                intent.value, doctor_suggestion, symptom_wording
+            )
+            reply = apply_disclaimer(reply, health=health_reply)
             parsed["reply"] = reply
+            if not health_reply:
+                # A booking, service or FAQ answer needs no doctor visit.
+                parsed["shouldSeeDoctor"] = False
 
             # ---------------------------------------------------------------
             # Step 8: Post-LLM Safety Verification (Day 7)
@@ -867,6 +883,8 @@ class HokuChatbot:
         response = EmergencyDetector.get_urgency_response(urgency)
         response["doctor_suggestion"] = None
         response["fallback_used"] = False
+        # Read (and removed) by the endpoint to set X-Hoku-Emergency-Kind.
+        response["emergency_kind"] = urgency
         metrics.record_latency("/api/ai/chat", time.perf_counter() - overall_start)
         return response
 
@@ -1012,6 +1030,7 @@ class HokuChatbot:
         doctor_suggestion: Optional[DoctorSuggestion] = None,
         user_id: Optional[int] = None,
         db: Optional[Session] = None,
+        symptom_wording: bool = False,
     ) -> Dict[str, Any]:
         """
         Deterministic reply when the reply LLM is unavailable, times out or
@@ -1027,15 +1046,15 @@ class HokuChatbot:
             reply, _violations, _severity = SafetyGuardrails.apply_3_strike_safety(
                 text=reply, user_id=user_id or 0, db=db
             )
-        if SAFETY_DISCLAIMER not in reply:
-            reply = f"{reply} {SAFETY_DISCLAIMER}"
+        health_reply = is_health_reply(intent, doctor_suggestion, symptom_wording)
+        reply = apply_disclaimer(reply, health=health_reply)
         return {
             "reply": reply,
             "suggestedSpecialist": doctor_suggestion.specialist
             if doctor_suggestion is not None
             else None,
             "severity": "unknown",
-            "shouldSeeDoctor": True,
+            "shouldSeeDoctor": health_reply,
             "intent": intent,
             "confidence": confidence,
             "doctor_suggestion": doctor_suggestion.model_dump()

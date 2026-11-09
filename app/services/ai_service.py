@@ -20,7 +20,7 @@ from app.ai.chatbot import HokuChatbot
 from app.ai.config import ai_settings
 from app.ai.memory import HokuConversationMemory
 from app.core.exceptions import DatabaseOperationException
-from app.utils.constants import SAFETY_DISCLAIMER
+from app.utils.constants import SAFETY_DISCLAIMER, has_disclaimer
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +95,7 @@ async def process_chat(
 
         # Ensure safety disclaimer is present (double-guard)
         reply: str = response.get("reply", "")
-        if SAFETY_DISCLAIMER not in reply:
+        if not has_disclaimer(reply):
             reply = f"{reply} {SAFETY_DISCLAIMER}"
             response["reply"] = reply
 

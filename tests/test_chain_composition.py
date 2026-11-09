@@ -10,7 +10,7 @@ from langchain_core.runnables import RunnableLambda
 from app.ai.chatbot import HokuChatbot
 from app.ai.intent_classifier import IntentClassifier, IntentEnum
 from app.ai.prompts import chat_prompt_template, rag_chat_prompt_template
-from app.utils.constants import SAFETY_DISCLAIMER
+from app.utils.constants import SAFETY_DISCLAIMER, has_disclaimer
 
 REPLY = {
     "reply": "Rest and drink fluids. " + SAFETY_DISCLAIMER,
@@ -86,7 +86,8 @@ async def test_get_response_sends_db_history_to_the_model():
         result = await bot.get_response("new question", user_id=1, db=MagicMock())
 
     assert result["severity"] == "mild"
-    assert SAFETY_DISCLAIMER in result["reply"]
+    # "new question" is a general question: the general closing line replaces it.
+    assert has_disclaimer(result["reply"])
     contents = [m.content for m in seen[0]]
     assert "earlier question" in contents and "earlier answer" in contents
 

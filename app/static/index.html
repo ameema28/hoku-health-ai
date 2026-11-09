@@ -106,6 +106,9 @@ header p { margin: 2px 0 0; color: var(--muted); font-size: 0.85rem; }
 .msg.notice { align-self: center; max-width: 100%; color: var(--muted); font-size: 0.82rem; background: transparent; border-style: dashed; }
 .msg.emergency { border-color: var(--danger); background: var(--danger-bg); }
 .flag { font-weight: 700; color: var(--danger); margin-bottom: 4px; white-space: normal; }
+.msg.support { border-color: var(--accent); background: var(--user); }
+.msg.support .flag { color: var(--accent); font-size: 1.05rem; }
+.title-short { display: none; }
 .doctor {
   margin-top: 8px;
   padding: 8px 10px;
@@ -167,9 +170,12 @@ header p { margin: 2px 0 0; color: var(--muted); font-size: 0.85rem; }
    The "not medical advice" banner stays visible. */
 @media (max-width: 600px), (max-height: 640px) {
   header { padding: 8px 0 6px; }
-  header h1 { font-size: 0.95rem; }
+  header h1 { font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  header > div { min-width: 0; }
+  .title-long { display: none; }
+  .title-short { display: inline; }
   header p { display: none; }
-  .banner { padding: 6px 10px; font-size: 0.78rem; }
+  .banner { padding: 5px 10px; font-size: 0.74rem; line-height: 1.3; }
   .toggle { padding: 4px 10px; font-size: 0.8rem; }
   footer { font-size: 0.68rem; padding-bottom: 4px; }
 }
@@ -208,7 +214,7 @@ footer { color: var(--muted); font-size: 0.75rem; padding-bottom: 8px; }
 <div class="app" id="app">
   <header>
     <div>
-      <h1>Hoku AI, the Hoku Health Care assistant</h1>
+      <h1><span class="title-long">Hoku AI, the Hoku Health Care assistant</span><span class="title-short">Hoku AI · Health Care assistant</span></h1>
       <p>Demo with sample FAQs and sample doctors.</p>
     </div>
     <button type="button" class="toggle" id="details-toggle" aria-pressed="false">Show details</button>
@@ -313,7 +319,8 @@ footer { color: var(--muted); font-size: 0.75rem; padding-bottom: 8px; }
     return value ? "yes" : "no";
   }
 
-  function fallbackText(value) {
+  function fallbackText(value, fixedEmergency) {
+    if (fixedEmergency) { return "no (fixed emergency reply, no AI model used)"; }
     if (missing(value)) { return NOT_RETURNED; }
     return value ? "yes (built from FAQ/doctor data, no live model)" : "no (live model)";
   }
@@ -322,6 +329,17 @@ footer { color: var(--muted); font-size: 0.75rem; padding-bottom: 8px; }
     if (missing(value)) { return NOT_RETURNED; }
     var seconds = parseFloat(value);
     return isNaN(seconds) ? String(value) : Math.round(seconds * 1000) + " ms (server time)";
+  }
+
+  // Only health answers get a "see a doctor" verdict; service, booking and
+  // FAQ answers show n/a. A doctor suggestion, or the server's own
+  // shouldSeeDoctor: true (it is false for non-health answers), also marks a
+  // health answer.
+  var HEALTH_INTENTS = ["symptom", "medication", "emergency"];
+
+  function seeDoctorText(data) {
+    var health = HEALTH_INTENTS.indexOf(data.intent) !== -1 || !!data.doctor_suggestion || data.shouldSeeDoctor === true;
+    return health ? yesNo(data.shouldSeeDoctor) : "n/a";
   }
 
   function slotText(slot) {
@@ -351,8 +369,10 @@ footer { color: var(--muted); font-size: 0.75rem; padding-bottom: 8px; }
 
   function addReply(data, headers) {
     var emergency = headers.get("X-Hoku-Emergency") === "true";
-    var node = addMessage(emergency ? "bot emergency" : "bot", "");
-    if (emergency) { node.appendChild(el("div", "flag", "Possible emergency")); }
+    var selfHarm = emergency && headers.get("X-Hoku-Emergency-Kind") === "self_harm";
+    var node = addMessage(selfHarm ? "bot support" : emergency ? "bot emergency" : "bot", "");
+    if (selfHarm) { node.appendChild(el("div", "flag", "You're not alone")); }
+    else if (emergency) { node.appendChild(el("div", "flag", "Possible emergency")); }
     node.appendChild(document.createTextNode(data.reply));
     if (data.doctor_suggestion) { node.appendChild(doctorBox(data.doctor_suggestion)); }
     var details = el("dl", "details");
@@ -360,10 +380,10 @@ footer { color: var(--muted); font-size: 0.75rem; padding-bottom: 8px; }
       ["Intent", intentText(data.intent)],
       ["Confidence", confidenceText(data.confidence)],
       ["Severity", missing(data.severity) ? NOT_RETURNED : data.severity],
-      ["See a doctor", yesNo(data.shouldSeeDoctor)],
+      ["See a doctor", seeDoctorText(data)],
       ["Suggested specialist", missing(data.suggestedSpecialist) ? "none" : data.suggestedSpecialist],
       ["Emergency flag", emergency ? "yes (X-Hoku-Emergency header)" : "no"],
-      ["Fallback used", fallbackText(data.fallback_used)],
+      ["Fallback used", fallbackText(data.fallback_used, emergency)],
       ["Response time", serverTimeText(headers.get("X-Response-Time-Sec"))]
     ].forEach(function (pair) {
       details.appendChild(el("dt", "", pair[0]));

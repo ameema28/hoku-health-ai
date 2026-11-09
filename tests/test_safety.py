@@ -20,7 +20,7 @@ from app.ai.config import ai_settings
 from app.ai.emergency_detector import EmergencyDetector
 from app.ai.safety_guardrails import SafetyGuardrails
 from app.core.monitoring import get_metrics
-from app.utils.constants import SAFETY_DISCLAIMER
+from app.utils.constants import SAFETY_DISCLAIMER, SELF_HARM_CLOSING
 
 
 # ------------------------------------------------------------------
@@ -305,7 +305,11 @@ class TestEmergencyUrgencyResponses:
         assert response["severity"] == "severe"
         assert "crisis line in your country" in reply
         assert "tell someone near you" in reply
-        assert SAFETY_DISCLAIMER in reply
+        assert reply.endswith(SELF_HARM_CLOSING)
+        assert SELF_HARM_CLOSING == (
+            "You can also talk to a doctor or a mental-health professional."
+        )
+        assert SAFETY_DISCLAIMER not in reply
         assert not any(ch.isdigit() for ch in reply)
 
     def test_unknown_urgency_defaults_to_high(self, detector):

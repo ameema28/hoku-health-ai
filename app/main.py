@@ -192,7 +192,9 @@ app = FastAPI(
     description=(
         "AI-powered home healthcare assistance platform.\n\n"
         "The chatbot never provides a definitive diagnosis; every response "
-        'ends with *"Please consult a doctor for proper diagnosis."*'
+        'ends with a disclaimer: *"Please consult a doctor for proper diagnosis."* '
+        'for health replies, *"General information only, not medical advice."* '
+        "for service, booking and FAQ replies."
     ),
     version=APP_VERSION,
     lifespan=lifespan,
@@ -224,6 +226,7 @@ app.add_middleware(
     expose_headers=[
         "X-Hoku-Emergency",
         "X-Hoku-Emergency-Severity",
+        "X-Hoku-Emergency-Kind",
         "X-Response-Time-Sec",
         "X-Correlation-ID",
         "RateLimit-Limit",

@@ -25,7 +25,7 @@ from app.ai.prompts import (
 from app.ai.safety_guardrails import SafetyGuardrails
 from app.schemas.schemas_doctor import DoctorSuggestion
 from app.scripts.seed_faqs import FAQS
-from app.utils.constants import SAFETY_DISCLAIMER
+from app.utils.constants import GENERAL_DISCLAIMER, SAFETY_DISCLAIMER
 
 FAQ_ANSWER = FAQS[7]["answer"]  # home-visit wait time
 
@@ -54,7 +54,7 @@ def _doctor(requested=None) -> DoctorSuggestion:
 class TestBuildFallbackReply:
     def test_faq_answer_then_disclaimer(self):
         reply = fr.build_fallback_reply("general", [_doc()], None)
-        assert reply == f"{FAQ_ANSWER} {SAFETY_DISCLAIMER}"
+        assert reply == f"{FAQ_ANSWER} {GENERAL_DISCLAIMER}"
 
     def test_doctor_sentence_names_only_the_specialty(self):
         """The doctor box shows name, experience and times: no repeat."""
@@ -94,6 +94,7 @@ class TestBuildFallbackReply:
     def test_disclaimer_appears_once(self):
         reply = fr.build_fallback_reply("general", [_doc()], _doctor())
         assert reply.count(SAFETY_DISCLAIMER) == 1
+        assert GENERAL_DISCLAIMER not in reply
 
     @pytest.mark.parametrize("faq", FAQS, ids=lambda f: f["question"][:40])
     def test_every_seeded_faq_fallback_passes_guardrails(self, faq):
@@ -163,7 +164,8 @@ class TestChatbotFallbackPaths:
         with _no_llm(bot):
             result = await bot.get_response("home visit wait?", 1, MagicMock())
         assert result["fallback_used"] is True
-        assert result["reply"] == f"{FAQ_ANSWER} {SAFETY_DISCLAIMER}"
+        assert result["reply"] == f"{FAQ_ANSWER} {GENERAL_DISCLAIMER}"
+        assert result["shouldSeeDoctor"] is False
         assert result["intent"] == "general"
         assert result["confidence"] == 0.95
 

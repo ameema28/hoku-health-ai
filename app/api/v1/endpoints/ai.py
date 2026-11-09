@@ -290,7 +290,11 @@ async def enforce_chat_rate_limit(
         "classifier); emergencies get a fixed urgent reply with "
         "`X-Hoku-Emergency: true`.\n"
         "- Messages over 1000 characters are rejected with 422.\n"
-        '- Every reply ends with *"Please consult a doctor for proper diagnosis."*'
+        '- Health replies end with *"Please consult a doctor for proper diagnosis."*; '
+        'service, booking and FAQ replies end with *"General information only, '
+        'not medical advice."* (the self-harm reply ends with a line about '
+        "talking to a doctor or mental-health professional).\n"
+        "- `shouldSeeDoctor` is false for booking, service and FAQ replies."
     ),
     openapi_extra={
         "requestBody": {
@@ -398,6 +402,7 @@ async def chat(
 
         total_elapsed = time.perf_counter() - request_start
         is_emergency = result.get("intent") == "emergency"
+        emergency_kind = result.pop("emergency_kind", None)
 
         # Day 10: label the Prometheus request counter with intent/emergency.
         metrics.increment_request(
@@ -429,6 +434,8 @@ async def chat(
             result["shouldSeeDoctor"] = True
             response.headers["X-Hoku-Emergency"] = "true"
             response.headers["X-Hoku-Emergency-Severity"] = severity
+            # "self_harm" (gentler wording on the demo page) or an urgency level.
+            response.headers["X-Hoku-Emergency-Kind"] = str(emergency_kind or "high")
 
         # Defensive: ensure severity is never None before Pydantic validation
         if result.get("severity") is None:

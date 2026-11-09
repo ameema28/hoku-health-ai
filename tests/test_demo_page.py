@@ -87,7 +87,12 @@ class TestPageAndHeaders:
             "fallback_used",
         }
         headers = set(re.findall(r'headers\.get\("([^"]+)"\)', script))
-        assert headers == {"X-Hoku-Emergency", "X-Response-Time-Sec", "Retry-After"}
+        assert headers == {
+            "X-Hoku-Emergency",
+            "X-Hoku-Emergency-Kind",
+            "X-Response-Time-Sec",
+            "Retry-After",
+        }
 
     def test_rate_limit_and_new_session_messages(self):
         script = _script()

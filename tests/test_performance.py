@@ -450,15 +450,15 @@ class TestLLMFactory:
 class TestFallbackResponses:
     def test_fallback_general_contains_disclaimer(self):
         """All fallback responses must include the clinical disclaimer."""
-        from app.utils.constants import SAFETY_DISCLAIMER
+        from app.utils.constants import has_disclaimer
 
-        assert SAFETY_DISCLAIMER in FALLBACK_GENERAL
+        assert has_disclaimer(FALLBACK_GENERAL)
 
     def test_fallback_emergency_contains_disclaimer(self):
         assert "Please consult a doctor for proper diagnosis." in FALLBACK_EMERGENCY
 
     def test_fallback_booking_contains_disclaimer(self):
-        assert "Please consult a doctor for proper diagnosis." in FALLBACK_BOOKING
+        assert "General information only, not medical advice." in FALLBACK_BOOKING
 
     def test_get_fallback_for_intent_emergency(self):
         """Emergency intent returns emergency fallback."""

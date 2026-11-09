@@ -3,8 +3,11 @@
 Base URL: your deployment (see `DEPLOYMENT.md`), or `http://localhost:8000`
 with docker compose. Interactive docs: `/docs` (Swagger) and `/redoc`.
 
-> Every chatbot reply ends with **"Please consult a doctor for proper
-> diagnosis."** Emergency messages get a fixed urgent reply (no LLM) and
+> Every chatbot reply ends with a disclaimer: **"Please consult a doctor for
+> proper diagnosis."** for health, symptom, medication and emergency replies,
+> **"General information only, not medical advice."** for service, booking and
+> FAQ replies. The fixed self-harm reply ends with "You can also talk to a
+> doctor or a mental-health professional." instead. Emergency messages get a fixed urgent reply (no LLM) and
 > special headers.
 
 ---
@@ -96,7 +99,7 @@ Response fields:
 | `reply` | string | Plain text, ends with the disclaimer. |
 | `suggestedSpecialist` | string or null | |
 | `severity` | string | `mild`, `moderate`, `severe` or `unknown`. |
-| `shouldSeeDoctor` | bool | |
+| `shouldSeeDoctor` | bool | False for booking, service and FAQ replies; true for health replies (and always true for emergencies). |
 | `intent` | string | `symptom`, `booking`, `medication`, `general` or `emergency`. |
 | `confidence` | number | Intent confidence, 0–1 (0 when the classifier gave no usable label). |
 | `doctor_suggestion` | object or null | `specialist`, `doctor_name`, `experience`, `availability` (list of `{id, doctor_id, day_of_week, start_time, end_time, is_booked}`, `day_of_week` 0 = Monday), `doctor_id`, `requested_specialist` (set when no doctor of the mapped specialty was available and a General Physician is suggested instead). |

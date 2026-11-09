@@ -16,7 +16,12 @@ from typing import List, Tuple
 from app.ai.config import ai_settings
 from app.ai.fallback_responses import FALLBACK_MEDICATION
 from app.crud.crud_safety import log_safety_violation
-from app.utils.constants import SAFETY_DISCLAIMER
+from app.utils.constants import (
+    GENERAL_DISCLAIMER,
+    SAFETY_DISCLAIMER,
+    SELF_HARM_CLOSING,
+    has_disclaimer,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +165,9 @@ def contains_dose(text: str) -> bool:
 
 # Disclaimer pattern: check for the mandatory safety disclaimer
 _DISCLAIMER_PATTERN = re.compile(
-    re.escape(SAFETY_DISCLAIMER),
+    "|".join(
+        re.escape(d) for d in (SAFETY_DISCLAIMER, GENERAL_DISCLAIMER, SELF_HARM_CLOSING)
+    ),
     re.IGNORECASE,
 )
 
@@ -257,7 +264,7 @@ class SafetyGuardrails:
         if not text or not isinstance(text, str):
             return f"{ai_settings.SAFETY_FALLBACK_RESPONSE} {SAFETY_DISCLAIMER}"
 
-        if SAFETY_DISCLAIMER not in text:
+        if not has_disclaimer(text):
             text = f"{text} {SAFETY_DISCLAIMER}"
             logger.debug("Disclaimer appended to response")
         return text
