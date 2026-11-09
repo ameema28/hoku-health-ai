@@ -16,12 +16,15 @@ will be rejected regardless of test status:
 2. **Mandatory disclaimer.** Every response path ends with
    *"Please consult a doctor for proper diagnosis."*
    (`SAFETY_DISCLAIMER` in `app/utils/constants.py`).
-3. **Emergencies bypass the LLM.** Emergency detection runs first and
-   short-circuits the LLM, RAG, symptom extraction, and doctor lookup.
+3. **Emergencies get a fixed reply.** The keyword check runs first and
+   short-circuits the LLM, RAG, symptom extraction and doctor lookup; an
+   `emergency` intent from the classifier gets the same fixed reply.
 4. **Never cache clinical intents.** `EMERGENCY` and `SYMPTOM` intents
-   must never be served from cache. Keep them in `CACHE_EXCLUDE_INTENTS`
-   and out of `ResponseCache.should_cache`.
-5. **Never log PHI.** Patient messages, AI replies, symptoms, and FAQ
+   must never be served from cache (`ResponseCache.should_cache`), and
+   only first turns (no history) are cached at all.
+5. **No doses.** A reply that states a medicine dose is replaced with the
+   fixed medication message (`app/ai/safety_guardrails.py`).
+6. **Never log PHI.** Patient messages, AI replies, symptoms, and FAQ
    context must never reach a log sink. `RedactionFilter` enforces this;
    don't add `extra={"user_message": ...}` to loosen it.
 
@@ -90,16 +93,16 @@ Every PR must:
 3. **Add or update tests** for any behaviour change. New endpoints need
    an integration test; new pipeline logic needs a unit test.
 4. **Mock Groq** in all tests — never call the real API.
-5. **Preserve the 215-test baseline** — zero regressions across Days 0–9.
+5. **Keep the full suite green** (`pytest tests --ignore=tests/load`) with no regressions.
 6. **Keep type hints + docstrings** on all new/changed public functions.
 7. **Update docs** when endpoints, env vars, or metrics change
    (`README.md`, `app/docs/chatbot_api.md`, `.env.example`).
 8. **Fill in the PR description**: what changed, why, and how the
    clinical safety invariants are preserved.
 
-PRs require at least one approving review from the AI Lead or Backend
-Lead before merge. Squash-merge; the squash commit message must itself be
-a valid Conventional Commit.
+PRs require at least one approving review from a maintainer before merge.
+Squash-merge; the squash commit message must itself be a valid
+Conventional Commit.
 
 ---
 
@@ -107,25 +110,25 @@ a valid Conventional Commit.
 
 ```bash
 python -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env         # add your GROQ_API_KEY
-pre-commit install           # optional, if configured
+pip install --index-url https://download.pytorch.org/whl/cpu torch==2.15.0
+pip install -r requirements-dev.txt -c constraints.txt
+cp .env.example .env         # set SECRET_KEY; GROQ_API_KEY is optional
 ```
 
-Before pushing:
+Before pushing (the same checks as CI):
 
 ```bash
-ruff check app tests
-ruff format app tests
-mypy app --ignore-missing-imports
-pytest tests/ --cov=app --cov-fail-under=80 --ignore=tests/load
+ruff check app tests scripts
+ruff format --check app tests scripts
+mypy app                     # settings in mypy.ini
+pytest tests --ignore=tests/load -p no:cacheprovider   # coverage gate in pytest.ini
 ```
 
 ---
 
 ## Code Style
 
-- **Formatter/linter:** `ruff` (line length 100). Run `ruff format`.
+- **Formatter/linter:** `ruff` with its default settings. Run `ruff format`.
 - **Types:** `mypy`-clean on `app/`. Annotate every public signature.
 - **Docstrings:** Google-style, on every module, class, and public
   function. Explain *why* for non-obvious safety/performance choices.
@@ -137,6 +140,6 @@ pytest tests/ --cov=app --cov-fail-under=80 --ignore=tests/load
 
 ## Questions
 
-Open a draft PR or tag the AI Lead. When in doubt about a clinical-safety
+Open a draft PR or an issue. When in doubt about a clinical-safety
 implication, ask first — a withheld change is cheaper than an unsafe
 response reaching a patient.

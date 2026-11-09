@@ -1,278 +1,204 @@
 # Hoku Health Care — AI Chatbot API Reference
 
-Base URL (local): `http://localhost:8000`
-Base URL: your deployment (see `DEPLOYMENT.md`); locally `http://localhost:8000`.
-
-All examples use `curl`. Interactive docs live at `/docs` (Swagger) and
-`/redoc`.
+Base URL: your deployment (see `DEPLOYMENT.md`), or `http://localhost:8000`
+with docker compose. Interactive docs: `/docs` (Swagger) and `/redoc`.
 
 > Every chatbot reply ends with **"Please consult a doctor for proper
-> diagnosis."** Emergency messages are detected before the LLM and return
-> an urgent response with special headers.
+> diagnosis."** Emergency messages get a fixed urgent reply (no LLM) and
+> special headers.
 
 ---
 
 ## Authentication
 
-Authenticated endpoints expect a **Bearer JWT** in the `Authorization`
-header. For local testing, mint one:
+Authenticated endpoints expect `Authorization: Bearer <JWT>` (HS256, with
+`sub` = user id and `role` = `patient` or `admin`).
 
-```bash
-python token_gen.py
-# → Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+| How | Endpoint / command | Notes |
+|:---|:---|:---|
+| Email + password | `POST /api/auth/login` with `{"email", "password"}` | Every failure is the same 401. |
+| Demo session | `POST /api/auth/demo` (no body) | Only when `DEMO_LOGIN_ENABLED=true` (otherwise 404). Creates a throwaway patient, 15-minute token. Rate limited per client IP. |
+| Local dev | `python -m app.scripts.dev_token --email you@example.com` | Prints a token for an existing user. Refuses to run in production. |
+
+Users are created with `python -m app.scripts.create_user --email ... --role patient|admin`.
+
+Token response:
+
+```json
+{ "access_token": "eyJ...", "token_type": "bearer", "expires_in": 900 }
 ```
 
-Then pass it:
-
-```bash
-export TOKEN="Bearer eyJhbGciOiJIUzI1NiI..."
-curl -H "Authorization: $TOKEN" http://localhost:8000/api/ai/chat/history
-```
-
-The token's `sub`/`id` claim is the user id; it must match the `userId`
-in the chat request body, or the API returns `404`.
+The chat request's `userId` must equal the token's `sub`, or the API
+returns `404`.
 
 ---
 
-## Rate Limits
+## Rate limits
 
-`POST /api/ai/chat` is limited to **5 requests per minute per user**
-(configurable via `RATE_LIMIT_REQUESTS_PER_MINUTE`). Every response
-carries:
+`POST /api/ai/chat` is limited per user (`RATE_LIMIT_REQUESTS_PER_MINUTE`,
+default 10) and per client IP (`CHAT_IP_RATE_PER_MINUTE`, default 20).
+Successful chat responses carry:
 
 | Header | Meaning |
 |--------|---------|
-| `RateLimit-Limit` | Requests allowed per window |
+| `RateLimit-Limit` | Requests allowed per window (per user) |
 | `RateLimit-Remaining` | Requests left in the current window |
 | `RateLimit-Reset` | Seconds until the window clears |
-| `Retry-After` | (on 429 only) seconds to wait before retrying |
 
-On breach the API returns `429 Too Many Requests`:
+On breach the API returns `429` with `Retry-After`:
 
 ```json
-{ "detail": "Rate limit exceeded. Try again in 42 seconds.", "correlation_id": "9f2c..." }
+{ "detail": "Rate limit exceeded. Try again in 42 seconds.", "correlation_id": "..." }
 ```
+
+Demo sessions are limited per client IP (`DEMO_RATE_LIMIT_PER_HOUR`, default 20).
 
 ---
 
 ## Correlation IDs
 
-Every response includes an `X-Correlation-ID` header. Send your own via
-the request header of the same name to trace a call end-to-end through
-the logs; otherwise the server generates one.
+Every response has an `X-Correlation-ID` header. You may send your own
+(1–64 letters, digits or hyphens); anything else is replaced with a new id.
+Error bodies include the same value as `correlation_id`.
 
 ---
 
 ## Endpoints
 
-### POST `/api/ai/chat` — AI Health Chatbot
+| Method | Path | Auth |
+|:---|:---|:---|
+| POST | `/api/ai/chat` | patient or admin |
+| GET | `/api/ai/chat/history` | patient or admin |
+| GET | `/api/ai/doctors?specialty=...` | patient or admin |
+| GET | `/api/ai/doctors/{doctor_id}/availability` | patient or admin |
+| POST | `/api/ai/rag/seed` | admin |
+| GET | `/api/ai/rag/search?q=...` | admin |
+| GET | `/api/ai/monitoring/metrics` | admin |
+| GET | `/health`, `/api/ai/health` | none |
+| GET | `/metrics` | see below |
+| GET | `/` | none (demo page) |
 
-**Auth:** required · **Rate limit:** 5/min
+A valid token with the wrong role gets `403`.
+
+### POST `/api/ai/chat`
 
 ```bash
-curl -X POST http://localhost:8000/api/ai/chat \
-  -H "Authorization: $TOKEN" \
+curl -X POST "$BASE/api/ai/chat" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"message": "I have a headache and fever for 3 days", "userId": 1}'
 ```
 
-**200 OK**
+Response fields:
 
-```json
-{
-  "reply": "A persistent fever with a headache is worth checking. I can't diagnose the cause, but a General Physician can evaluate you. Please consult a doctor for proper diagnosis.",
-  "suggestedSpecialist": "General Physician",
-  "severity": "moderate",
-  "shouldSeeDoctor": true,
-  "intent": "symptom",
-  "confidence": 0.95,
-  "doctor_suggestion": {
-    "specialist": "General Physician",
-    "doctors": [
-      { "id": 3, "name": "Dr. Sara Ahmed", "specialty": "General Physician", "experience_years": 12 }
-    ]
-  }
-}
-```
+| Field | Type | Notes |
+|:---|:---|:---|
+| `reply` | string | Plain text, ends with the disclaimer. |
+| `suggestedSpecialist` | string or null | |
+| `severity` | string | `mild`, `moderate`, `severe` or `unknown`. |
+| `shouldSeeDoctor` | bool | |
+| `intent` | string | `symptom`, `booking`, `medication`, `general` or `emergency`. |
+| `confidence` | number | Intent confidence, 0–1 (0 when the classifier gave no usable label). |
+| `doctor_suggestion` | object or null | `specialist`, `doctor_name`, `experience`, `availability` (list of `{id, doctor_id, day_of_week, start_time, end_time, is_booked}`, `day_of_week` 0 = Monday), `doctor_id`, `requested_specialist` (set when no doctor of the mapped specialty was available and a General Physician is suggested instead). |
+| `fallback_used` | bool | `true` when the reply model was unavailable, timed out or failed: the reply is then built from the matched FAQ answer and doctor data, or is a fixed message. |
 
-**Emergency example**
-
-```bash
-curl -i -X POST http://localhost:8000/api/ai/chat \
-  -H "Authorization: $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"message": "I have severe chest pain and can'\''t breathe", "userId": 1}'
-```
-
-Response headers include:
+**Emergencies.** A red-flag phrase (English keyword list) or an
+`emergency` intent from the classifier returns a fixed urgent reply with
+regional emergency numbers (Pakistan, UAE, UK). Self-harm wording gets a
+separate reply that points to the local emergency number or a crisis line,
+with no phone numbers. Headers:
 
 ```
 X-Hoku-Emergency: true
-X-Hoku-Emergency-Severity: severe
+X-Hoku-Emergency-Severity: severe   (or moderate; same value as "severity")
 ```
 
-Body: `severity` is `severe`, `shouldSeeDoctor` is `true`, and the reply
-lists regional emergency numbers (Pakistan 1122, UAE 998/999, UK 999).
+**Medicine doses.** A reply that states a dose, amount or dosing interval
+is replaced with a fixed message asking the patient to check with a doctor
+or pharmacist.
 
----
+### GET `/api/ai/chat/history`
 
-### GET `/api/ai/chat/history` — Chat History
-
-**Auth:** required
-
-```bash
-curl -H "Authorization: $TOKEN" \
-  "http://localhost:8000/api/ai/chat/history?limit=20&skip=0"
-```
+Query params: `limit` (1–100, default 20), `skip` (≥ 0, default 0).
+Returns the authenticated user's turns, oldest first:
 
 ```json
 {
   "user_id": 1,
   "messages": [
-    { "role": "human", "content": "What services does Hoku offer?", "timestamp": "2026-07-24T18:04:11" },
-    { "role": "ai", "content": "Hoku offers home health, palliative, and hospice care. Please consult a doctor for proper diagnosis.", "timestamp": "2026-07-24T18:04:12" }
+    { "role": "human", "content": "What services does Hoku offer?", "timestamp": "..." },
+    { "role": "ai", "content": "... Please consult a doctor for proper diagnosis.", "timestamp": "..." }
   ]
 }
 ```
 
-Query params: `limit` (1–100, default 20), `skip` (≥0, default 0).
+### GET `/health` and `/api/ai/health`
 
----
-
-### GET `/api/ai/health` — Health Check
-
-**Auth:** none
-
-```bash
-curl http://localhost:8000/api/ai/health
-# {"status":"ok","service":"Hoku AI Chatbot"}
-```
-
----
-
-### GET `/api/ai/doctors` — List Doctors by Specialty
-
-**Auth:** required
-
-```bash
-curl -H "Authorization: $TOKEN" \
-  "http://localhost:8000/api/ai/doctors?specialty=Cardiologist"
-```
-
-Returns doctors with `is_available=true`, ordered by `experience_years`
-descending. Empty list if none match.
-
----
-
-### GET `/api/ai/doctors/{doctor_id}/availability` — Doctor Availability
-
-**Auth:** required
-
-```bash
-curl -H "Authorization: $TOKEN" \
-  http://localhost:8000/api/ai/doctors/3/availability
-```
-
----
-
-### POST `/api/ai/rag/seed` — Seed FAQ Vector Store (admin)
-
-**Auth:** none (restrict at the ingress in production)
-
-```bash
-curl -X POST http://localhost:8000/api/ai/rag/seed
-# {"status":"ok","documents_added":20,"collection":"hoku_health_faqs"}
-```
-
-Not idempotent — each call adds another copy of the FAQ set.
-
----
-
-### GET `/api/ai/rag/search` — Debug Similarity Search (admin)
-
-```bash
-curl "http://localhost:8000/api/ai/rag/search?q=palliative%20care"
-```
-
-Returns scored FAQ matches for tuning `RAG_SIMILARITY_THRESHOLD`.
-
----
-
-### GET `/api/ai/monitoring/metrics` — Safety & Performance Summary
-
-**Auth:** required
-
-```bash
-curl -H "Authorization: $TOKEN" \
-  http://localhost:8000/api/ai/monitoring/metrics
-```
+Always HTTP 200, no token, not rate limited:
 
 ```json
-{
-  "status": "ok",
-  "metrics": {
-    "requests_total": 1240,
-    "emergency_detections_total": 7,
-    "safety_violations_total": 2,
-    "nfr02_breaches_total": 1,
-    "average_latency_ms": 1830.4,
-    "p99_latency_ms": 2450.0,
-    "breach_rate_percent": 0.08,
-    "cache_hit_ratio": 0.34,
-    "prometheus_enabled": true
-  }
-}
+{ "status": "ok", "service": "Hoku AI Chatbot", "rag_ready": true }
 ```
+
+`status` is `degraded` (and `rag_ready` false) when the start-up warm-up
+found no FAQ content.
+
+### GET `/api/ai/doctors` and `/api/ai/doctors/{doctor_id}/availability`
+
+Available doctors for a specialty, most experienced first, and a doctor's
+weekly slots. Empty lists when nothing matches.
+
+### POST `/api/ai/rag/seed` (admin)
+
+Seeds the FAQ knowledge base. Idempotent: FAQs already stored (by content
+hash) are skipped.
+
+```json
+{ "status": "ok", "documents_added": 0, "documents_skipped": 20, "collection": "hoku_health_faqs" }
+```
+
+### GET `/api/ai/rag/search?q=...` (admin)
+
+Raw similarity search, for checking `RAG_SIMILARITY_THRESHOLD`. Returns the
+query and the top matches with `question`, `answer`, `category` and `score`.
+
+### GET `/api/ai/monitoring/metrics` (admin)
+
+Human-readable safety and performance counters (`{"status": "ok", "metrics": {...}}`),
+in memory and reset on restart.
+
+### GET `/metrics`
+
+Prometheus text format.
+
+- `METRICS_ENABLED=false`: 404.
+- `METRICS_TOKEN` set: requires `Authorization: Bearer <METRICS_TOKEN>` (401 otherwise).
+- `METRICS_TOKEN` unset: open only when `ENVIRONMENT` is `test` or `development`; 404 elsewhere.
 
 ---
 
-### GET `/metrics` — Prometheus Exposition
-
-**Auth:** none (scrape from a private network)
-
-```bash
-curl http://localhost:8000/metrics
-```
-
-```
-# HELP hoku_chatbot_requests_total Total chat requests processed...
-# TYPE hoku_chatbot_requests_total counter
-hoku_chatbot_requests_total{intent="general",emergency_flag="false"} 812.0
-hoku_chatbot_response_time_seconds_bucket{endpoint="/api/ai/chat",le="4.0"} 1239.0
-hoku_chatbot_cache_hit_ratio 0.34
-...
-```
-
----
-
-## Error Codes
+## Error codes
 
 | Status | Meaning | Example `detail` |
 |--------|---------|------------------|
-| `400` | Empty message or over 1000 chars | `Message cannot be empty or exceeds maximum length.` |
-| `401` | Missing/invalid Bearer token | `Not authenticated` |
-| `404` | `userId` ≠ authenticated user, or unknown user | `User not found or access denied` |
-| `422` | Request body failed validation | *(Pydantic error list)* |
+| `400` | Message empty after trimming whitespace | `Message cannot be empty or exceeds maximum length.` |
+| `401` | Missing, invalid or expired token | `Not authenticated` / `Could not validate credentials` |
+| `403` | Valid token, role not allowed | `Insufficient permissions` |
+| `404` | `userId` ≠ authenticated user, unknown user, or demo login disabled | `User not found or access denied` |
+| `422` | Body failed validation (e.g. message over 1000 characters) | *(Pydantic error list)* |
 | `429` | Rate limit exceeded | `Rate limit exceeded. Try again in N seconds.` |
-| `500` | Unexpected server error | `An unexpected error occurred... Please consult a doctor for proper diagnosis.` |
+| `500` | Unexpected server error | `An unexpected error occurred while processing your request.` |
 
-Error bodies include a `correlation_id` you can quote in a support
-request; it matches the `X-Correlation-ID` response header and the server
-logs.
+Error bodies include `correlation_id`. On `/api/auth/*`, validation errors
+never echo submitted values.
 
 ---
 
-## Notes for the Frontend Team
+## Notes for clients
 
-- Read `X-Hoku-Emergency` on every chat response and route to the
-  emergency UI when it is `true` — don't rely on parsing the reply text.
-- Surface `RateLimit-Remaining` so patients aren't surprised by a 429;
-  back off using `Retry-After`.
-- Send a stable `X-Correlation-ID` per user action to make support
-  triage trivial.
-- `doctor_suggestion` is `null` for booking, medication, and emergency
-  intents by design — render it only when present.
-- `fallback_used` is `true` when the reply LLM was unavailable, timed out
-  or failed. The reply is then built from the matched FAQ answer and the
-  doctor suggestion (or is a fixed message) and still ends with the
-  disclaimer.
+- Read `X-Hoku-Emergency` on every chat response and switch to the
+  emergency UI when it is `true`; don't parse the reply text.
+- Render `reply` as plain text (it is not HTML-escaped).
+- Back off using `Retry-After` on 429.
+- `doctor_suggestion` is `null` for booking, medication and emergency
+  replies; render it only when present.

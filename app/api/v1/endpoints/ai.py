@@ -13,9 +13,10 @@ Day 8 additions:
 - RAG seed endpoint wrapped with timeout to prevent 11s+ delays
 
 Day 10 additions:
-- Per-user rate limiting on POST /api/ai/chat (default 5 req/min), enforced
-  by a small in-process sliding-window limiter keyed on the authenticated
-  user id. 429 responses carry Retry-After and standard RateLimit-* headers.
+- Rate limiting on POST /api/ai/chat, per authenticated user
+  (RATE_LIMIT_REQUESTS_PER_MINUTE, default 10) and per client IP
+  (CHAT_IP_RATE_PER_MINUTE, default 20), with in-process sliding windows.
+  429 responses carry Retry-After and standard RateLimit-* headers.
 - Rich OpenAPI request/response examples via ``openapi_extra`` and
   ``responses=`` so /docs is self-documenting for the frontend team.
 - Consistent operation ``tags``/``summary``/``operation_id`` metadata.
@@ -42,6 +43,7 @@ from fastapi import (
 )
 from sqlalchemy.orm import Session
 
+from app.ai.emergency_detector import EmergencyDetector
 from app.ai.rag import HokuRAG
 from app.ai.readiness import check_rag, health_payload
 from app.core.client_ip import client_ip
@@ -90,6 +92,7 @@ _CHAT_RESPONSE_EXAMPLES: Dict[str, Any] = {
             "intent": "general",
             "confidence": 0.88,
             "doctor_suggestion": None,
+            "fallback_used": False,
         },
     },
     "symptom_with_doctor": {
@@ -108,38 +111,37 @@ _CHAT_RESPONSE_EXAMPLES: Dict[str, Any] = {
             "confidence": 0.95,
             "doctor_suggestion": {
                 "specialist": "General Physician",
-                "doctors": [
+                "doctor_name": "Dr. Sara Ahmed",
+                "experience": 12,
+                "availability": [
                     {
-                        "id": 3,
-                        "name": "Dr. Sara Ahmed",
-                        "specialty": "General Physician",
-                        "experience_years": 12,
+                        "id": 7,
+                        "doctor_id": 3,
+                        "day_of_week": 0,
+                        "start_time": "09:00",
+                        "end_time": "13:00",
+                        "is_booked": False,
                     }
                 ],
+                "doctor_id": 3,
+                "requested_specialist": None,
             },
+            "fallback_used": False,
         },
     },
     "emergency": {
         "summary": "Emergency escalation (also sets X-Hoku-Emergency headers)",
         "value": {
-            "reply": (
-                "This may be a medical emergency. Please call emergency "
-                "services now: Pakistan 1122, UAE 998/999, UK 999. "
-                "Please consult a doctor for proper diagnosis."
-            ),
-            "suggestedSpecialist": None,
-            "severity": "severe",
-            "shouldSeeDoctor": True,
-            "intent": "emergency",
-            "confidence": 0.99,
+            **EmergencyDetector.get_urgency_response(EmergencyDetector.URGENCY_HIGH),
             "doctor_suggestion": None,
+            "fallback_used": False,
         },
     },
 }
 
 _ERROR_RESPONSES: Dict[Union[int, str], Dict[str, Any]] = {
     status.HTTP_400_BAD_REQUEST: {
-        "description": "Message empty or exceeds the 1000-character limit.",
+        "description": "Message is empty after trimming whitespace.",
         "content": {
             "application/json": {
                 "example": {
@@ -161,18 +163,21 @@ _ERROR_RESPONSES: Dict[Union[int, str], Dict[str, Any]] = {
         },
     },
     status.HTTP_429_TOO_MANY_REQUESTS: {
-        "description": "Rate limit exceeded (default 5 requests/minute per user).",
+        "description": (
+            "Rate limit exceeded: per user (default 10/minute) or per client "
+            "IP (default 20/minute). Retry-After says when to retry."
+        ),
         "content": {
             "application/json": {
                 "example": {
                     "detail": "Rate limit exceeded. Try again in 42 seconds.",
-                    "retry_after_seconds": 42,
+                    "correlation_id": "9f2c0d6e4b8a4c1e8d7f3a2b1c0e9d8f",
                 }
             }
         },
     },
     status.HTTP_500_INTERNAL_SERVER_ERROR: {
-        "description": "Unexpected server error. The reply still carries the safety disclaimer.",
+        "description": "Unexpected server error (no reply was produced).",
         "content": {
             "application/json": {
                 "example": {
@@ -279,9 +284,12 @@ async def enforce_chat_rate_limit(
     description=(
         "Send a health question to Hoku AI and receive a safe, non-diagnostic "
         "response, grounded in Hoku Health Care's FAQ knowledge base when relevant.\n\n"
-        "- **Rate limit:** 5 requests/minute per user (429 with `Retry-After` on breach).\n"
-        "- **Emergency detection** runs first; life-threatening messages return an "
-        "urgent response with `X-Hoku-Emergency: true`.\n"
+        "- **Rate limits:** per user (default 10/minute) and per client IP "
+        "(default 20/minute); 429 with `Retry-After` on breach.\n"
+        "- **Emergency detection** runs first (keyword check, then the intent "
+        "classifier); emergencies get a fixed urgent reply with "
+        "`X-Hoku-Emergency: true`.\n"
+        "- Messages over 1000 characters are rejected with 422.\n"
         '- Every reply ends with *"Please consult a doctor for proper diagnosis."*'
     ),
     openapi_extra={

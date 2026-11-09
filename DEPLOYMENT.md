@@ -243,6 +243,7 @@ python scripts/smoke_check.py --url https://<service-url> --out ../_facts/hoku_s
 - `--check-demo-limit` also checks the demo-session limit. It uses up the hour's demo sessions for your IP.
 - About 6 live LLM calls, paced 6.5 s apart; about 2.5 minutes with the rate-limit checks.
 - Measured locally against the container without a Groq key: 7 PASS, 2 WARN, 3 FAIL. The FAILs were only `fallback_used: true` on the three LLM examples (expected without a key); the WARNs were the scope probes, answered with the matched FAQ by the fallback; both rate-limit checks got their 429. Against docker compose (Postgres + pgvector, `--skip-rate-limit`): the same results.
+- **Note:** the image measured above had resolved `httpx 0.28.1`, with which `groq 0.9.0` cannot create a client at all, so those three examples would have been fallbacks even with a valid key. `httpx` is now pinned (and the whole tree locked in `constraints.txt`); CI checks inside the image that a Groq client can be created. With a key, `fallback_used: false` on the three LLM examples is the real check.
 
 `scripts/benchmark.py` (stdlib only) starts one demo session, sends one warm-up request (not counted), then N sequential chats over the 3 non-emergency examples, and prints nearest-rank p50 / p95 / max for client time and for the server's `X-Response-Time-Sec`:
 
