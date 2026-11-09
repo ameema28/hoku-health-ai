@@ -251,6 +251,27 @@ class TestChatbotFallbackPaths:
         assert result["fallback_used"] is False
         assert result["reply"].startswith("Visits are usually confirmed")
 
+    async def test_emergency_intent_gets_fixed_reply_without_llm(self, no_memory):
+        from app.ai.emergency_detector import EmergencyDetector
+
+        bot = _bot(intent=IntentEnum.EMERGENCY, docs=[_doc()])
+        bot._main_llm = MagicMock()
+        generate = AsyncMock(return_value="{}")
+        db = MagicMock()
+        with patch("app.ai.chatbot.generate_with_timeout", generate), patch(
+            "app.crud.crud_safety.log_safety_violation"
+        ) as log_event:
+            # No red-flag keyword: only the classifier signals an emergency.
+            result = await bot.get_response("my dad looks really wrong", 1, db)
+        expected = EmergencyDetector.get_urgency_response("high")
+        assert result["reply"] == expected["reply"]
+        assert result["intent"] == "emergency"
+        assert result["severity"] == "severe"
+        assert result["doctor_suggestion"] is None
+        assert result["fallback_used"] is False
+        generate.assert_not_called()
+        assert log_event.call_args.kwargs["violation_type"] == "emergency_triggered"
+
 
 # ---------------------------------------------------------------------------
 # API field
@@ -272,6 +293,18 @@ def test_emergency_reply_is_not_marked_fallback(client, auth_headers):
     assert resp.status_code == 200
     assert resp.headers.get("X-Hoku-Emergency") == "true"
     assert resp.json()["fallback_used"] is False
+
+
+def test_moderate_emergency_severity_matches_header(client, auth_headers):
+    resp = client.post(
+        "/api/ai/chat",
+        json={"message": "I have had persistent vomiting since morning", "userId": 1},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    assert resp.headers.get("X-Hoku-Emergency") == "true"
+    assert resp.headers.get("X-Hoku-Emergency-Severity") == "moderate"
+    assert resp.json()["severity"] == "moderate"
 
 
 # ---------------------------------------------------------------------------

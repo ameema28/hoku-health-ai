@@ -12,7 +12,7 @@ Day 6 additions:
 - Doctor lookup limit
 
 Day 7 additions:
-- Emergency check timeout (Tier 2 LLM fallback)
+- Safety guardrail retries and fallback text
 - Safety max retries (3-strike mechanism)
 - Safety fallback response (hardcoded safe message)
 
@@ -109,10 +109,6 @@ class AISettings(BaseSettings):
     # ------------------------------------------------------------------
     # Emergency Detection & Safety Guardrails (Day 7)
     # ------------------------------------------------------------------
-    # Timeout for Tier 2 LLM emergency check (ambiguous edge cases).
-    # Tier 1 regex runs in <50ms regardless; this is only for fallback.
-    EMERGENCY_CHECK_TIMEOUT: float = 0.3
-
     # Maximum safety retry attempts before returning hardcoded fallback.
     # Each retry sanitizes the response and re-validates.
     SAFETY_MAX_RETRIES: int = 3
@@ -143,7 +139,7 @@ def get_ai_settings() -> AISettings:
         "memory_limit=%d, memory_tokens=%d, intent_model=%s, "
         "intent_timeout=%.2fs, intent_threshold=%.2f, "
         "symptom_timeout=%.2fs, doctor_limit=%d, "
-        "emergency_timeout=%.2fs, safety_retries=%d",
+        "safety_retries=%d",
         ai_settings.GROQ_MAIN_MODEL,
         ai_settings.TEMPERATURE,
         ai_settings.MAX_TOKENS,
@@ -155,7 +151,6 @@ def get_ai_settings() -> AISettings:
         ai_settings.INTENT_CONFIDENCE_THRESHOLD,
         ai_settings.SYMPTOM_EXTRACTION_TIMEOUT,
         ai_settings.DOCTOR_LOOKUP_LIMIT,
-        ai_settings.EMERGENCY_CHECK_TIMEOUT,
         ai_settings.SAFETY_MAX_RETRIES,
     )
     return ai_settings

@@ -7,8 +7,9 @@ specialist/doctor suggestion, post-LLM safety verification, and
 (Day 8) strict step budgeting with async concurrency for <4s guarantees.
 
 Flow:
-1. Emergency detection (Tier 1 regex <50ms, Tier 2 LLM 0.3s fallback)
-2. Intent classification + Memory loading + RAG retrieval (asyncio.gather)
+1. Emergency detection (keyword regex, <50ms): fixed urgent reply
+2. Intent classification + Memory loading + RAG retrieval (asyncio.gather);
+   an ``emergency`` intent also gets the fixed urgent reply
 3. Response cache lookup (<5ms)
 4. LLM generation with remaining budget timeout
 5. Post-LLM Safety Verification (3-strike safety retry)
@@ -398,40 +399,15 @@ class HokuChatbot:
         optimizer.enforce_budget("emergency_detect", emergency_start)
 
         if is_emergency:
-            logger.critical(
-                # reason is the matched patient text: never logged.
-                "Emergency detected for user_id=%s (urgency=%s) — bypassing LLM/RAG/cache",
-                user_id,
+            # reason is the matched patient text: never logged.
+            return self._emergency_reply(
                 urgency,
+                source="keyword",
+                message=message_for_emergency,
+                user_id=user_id,
+                db=db,
+                overall_start=overall_start,
             )
-            metrics.increment_emergency_detection()
-
-            try:
-                from app.crud.crud_safety import log_safety_violation
-
-                log_safety_violation(
-                    db=db,
-                    user_id=user_id,
-                    message=message_for_emergency[:1000],
-                    ai_response="[emergency bypass — LLM/RAG/cache skipped]",
-                    violation_type="emergency_triggered",
-                    severity="high",
-                )
-            except Exception as log_exc:
-                logger.warning(
-                    "Failed to log emergency safety event: %s", type(log_exc).__name__
-                )
-
-            emergency_response = EmergencyDetector.get_urgency_response(urgency)
-            total_elapsed = time.perf_counter() - overall_start
-            logger.info(
-                "Emergency response (urgency=%s) returned in %.3fs for user_id=%s",
-                urgency,
-                total_elapsed,
-                user_id,
-            )
-            metrics.record_latency("/api/ai/chat", total_elapsed)
-            return emergency_response
 
         # ---------------------------------------------------------------
         # Step 1.5: Fast-path cache check for GENERAL intent
@@ -567,6 +543,18 @@ class HokuChatbot:
             concurrent_elapsed,
             user_id,
         )
+
+        # The classifier is a second emergency signal for phrasings the
+        # keyword list misses: same fixed reply, never an LLM-written one.
+        if intent == IntentEnum.EMERGENCY:
+            return self._emergency_reply(
+                EmergencyDetector.URGENCY_HIGH,
+                source="intent",
+                message=message_for_emergency,
+                user_id=user_id,
+                db=db,
+                overall_start=overall_start,
+            )
 
         # Filter RAG context based on intent
         use_rag = False
@@ -885,6 +873,53 @@ class HokuChatbot:
                 type(exc).__name__,
             )
             return _fallback(type(exc).__name__)
+
+    @staticmethod
+    def _emergency_reply(
+        urgency: str,
+        *,
+        source: str,
+        message: str,
+        user_id: int,
+        db: Session,
+        overall_start: float,
+    ) -> Dict[str, Any]:
+        """
+        Fixed urgent reply for ``urgency``, recorded as a safety event.
+
+        ``source`` is "keyword" (regex) or "intent" (classifier). No LLM,
+        RAG, cache or doctor lookup is involved.
+        """
+        metrics = get_metrics()
+        logger.critical(
+            "Emergency reply for user_id=%s (urgency=%s, source=%s)",
+            user_id,
+            urgency,
+            source,
+        )
+        metrics.increment_emergency_detection()
+
+        try:
+            from app.crud.crud_safety import log_safety_violation
+
+            log_safety_violation(
+                db=db,
+                user_id=user_id,
+                message=message[:1000],
+                ai_response=f"[fixed emergency reply, source={source}]",
+                violation_type="emergency_triggered",
+                severity="high",
+            )
+        except Exception as log_exc:
+            logger.warning(
+                "Failed to log emergency safety event: %s", type(log_exc).__name__
+            )
+
+        response = EmergencyDetector.get_urgency_response(urgency)
+        response["doctor_suggestion"] = None
+        response["fallback_used"] = False
+        metrics.record_latency("/api/ai/chat", time.perf_counter() - overall_start)
+        return response
 
     @staticmethod
     def _apply_compressed_history(

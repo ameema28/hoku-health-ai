@@ -413,18 +413,14 @@ async def chat(
                 total_elapsed,
             )
 
-        # Day 7: Enhanced emergency header handling
-        if is_emergency and result.get("confidence", 0.0) >= 0.99:
-            response.headers["X-Hoku-Emergency"] = "true"
-            severity = result.get("severity", "severe")
-            response.headers["X-Hoku-Emergency-Severity"] = severity
-            logger.critical(
-                "X-Hoku-Emergency headers set for user_id=%s (severity=%s)",
-                request.userId,
-                severity,
-            )
-            result["severity"] = "severe"
+        # Every emergency reply is a fixed urgent reply (keyword or intent
+        # signal). Header and body carry the same severity.
+        if is_emergency:
+            severity = result.get("severity") or "severe"
+            result["severity"] = severity
             result["shouldSeeDoctor"] = True
+            response.headers["X-Hoku-Emergency"] = "true"
+            response.headers["X-Hoku-Emergency-Severity"] = severity
 
         # Defensive: ensure severity is never None before Pydantic validation
         if result.get("severity") is None:

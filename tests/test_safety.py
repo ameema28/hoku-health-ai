@@ -2,7 +2,7 @@
 Hoku Health Care - Safety Guardrails & Emergency Escalation Unit Tests (Day 7).
 
 Comprehensive tests for:
-- EmergencyDetector (Tier 1 regex + Tier 2 LLM fallback)
+- EmergencyDetector (keyword regex, self-harm / high / moderate)
 - SafetyGuardrails (diagnosis/prescription detection, disclaimer enforcement)
 - 3-strike safety retry mechanism
 - Monitoring metrics counters
@@ -11,8 +11,6 @@ Comprehensive tests for:
 All Groq API calls are mocked — no real API usage.
 """
 
-import asyncio
-import json
 import time
 from unittest.mock import MagicMock, patch
 
@@ -35,7 +33,6 @@ def mock_settings():
     """Mock AI settings for safety tests."""
     settings = MagicMock()
     settings.groq_api_key = "test-api-key"
-    settings.EMERGENCY_CHECK_TIMEOUT = 0.3
     settings.SAFETY_MAX_RETRIES = 3
     settings.SAFETY_FALLBACK_RESPONSE = (
         "I am unable to provide a medical opinion for this query. "
@@ -45,10 +42,9 @@ def mock_settings():
 
 
 @pytest.fixture
-def detector(mock_settings):
-    """Create EmergencyDetector with mocked settings."""
-    with patch("app.ai.emergency_detector.ai_settings", mock_settings):
-        yield EmergencyDetector()
+def detector():
+    """EmergencyDetector (stateless; no settings involved)."""
+    return EmergencyDetector()
 
 
 @pytest.fixture
@@ -108,11 +104,11 @@ class TestEmergencyDetectorTier1:
         assert is_emergency is True
         assert urgency == "high"
 
-    def test_detect_high_urgency_suicide(self, detector):
-        """Tier 1: High urgency detection of suicide."""
+    def test_detect_self_harm_suicide(self, detector):
+        """Suicide wording gets the separate self-harm reply."""
         is_emergency, urgency, reason = detector.detect_emergency("I want to suicide")
         assert is_emergency is True
-        assert urgency == "high"
+        assert urgency == "self_harm"
 
     def test_detect_high_urgency_seizure(self, detector):
         """Tier 1: High urgency detection of seizure."""
@@ -148,12 +144,65 @@ class TestEmergencyDetectorTier1:
         assert "fever" in reason.lower()
 
     def test_detect_moderate_urgency_dehydration(self, detector):
-        """Tier 1: Moderate urgency detection of dehydration."""
+        """Tier 1: Moderate urgency detection of severe dehydration."""
         is_emergency, urgency, reason = detector.detect_emergency(
-            "Signs of dehydration, very thirsty"
+            "Signs of severe dehydration, very thirsty"
         )
         assert is_emergency is True
         assert urgency == "moderate"
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "I can’t breathe",  # curly apostrophe from a phone keyboard
+            "I can‘t breathe",
+            "I cant breathe",
+            "I'm short of breath and my lips look grey",
+            "Shortness of breath when lying down",
+            "She is struggling to breathe",
+            "My dad collapsed and isn't responding",
+            "My mother is unresponsive",
+            "He is not responding to us",
+            "I think he overdosed",
+            "Her lips are blue",
+        ],
+    )
+    def test_detect_high_urgency_new_phrases(self, detector, message):
+        is_emergency, urgency, _ = detector.detect_emergency(message)
+        assert is_emergency is True
+        assert urgency == "high"
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "I want to kill myself",
+            "I don't want to live anymore",
+            "I don’t want to live anymore",
+            "I keep thinking about ending my life",
+            "I want to die",
+            "I have been hurting myself... I want to hurt myself again",
+            "thoughts of self-harm",
+        ],
+    )
+    def test_detect_self_harm_phrases(self, detector, message):
+        is_emergency, urgency, _ = detector.detect_emergency(message)
+        assert is_emergency is True
+        assert urgency == "self_harm"
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "How do I prevent dehydration in summer?",
+            "I'm in confusion about how booking works",
+        ],
+    )
+    def test_ordinary_questions_are_not_moderate_emergencies(self, detector, message):
+        assert detector.detect_emergency(message) == (False, "none", "")
+
+    def test_sudden_confusion_is_moderate(self, detector):
+        assert detector.detect_emergency("My grandmother has sudden confusion")[1] == (
+            "moderate"
+        )
 
     def test_no_emergency_normal_message(self, detector):
         """Tier 1: Normal messages should not trigger emergency."""
@@ -210,64 +259,6 @@ class TestEmergencyDetectorTier1:
 
 
 # ------------------------------------------------------------------
-# EmergencyDetector Tests — Tier 2 LLM Fallback
-# ------------------------------------------------------------------
-
-
-class TestEmergencyDetectorTier2:
-    @pytest.mark.asyncio
-    async def test_tier2_ambiguous_edge_case(self, detector):
-        """Tier 2: LLM fallback for ambiguous edge cases."""
-        # Mock the LLM chain to return emergency for ambiguous text
-        mock_chain = MagicMock()
-        mock_chain.invoke.return_value = {
-            "text": json.dumps(
-                {
-                    "is_emergency": True,
-                    "urgency": "high",
-                    "reason": "ambiguous chest discomfort",
-                }
-            )
-        }
-
-        with patch.object(
-            EmergencyDetector, "_build_tier2_chain", return_value=mock_chain
-        ):
-            is_emergency, urgency, reason = await detector.detect_emergency_async(
-                "My chest feels a bit funny and I'm worried"
-            )
-            assert is_emergency is True
-            assert urgency == "high"
-            assert "ambiguous" in reason.lower()
-
-    @pytest.mark.asyncio
-    async def test_tier2_timeout_falls_back_to_tier1(self, detector):
-        """Tier 2: On timeout, fall back to Tier 1 result."""
-        slow_chain = MagicMock()
-        slow_chain.invoke = lambda **kwargs: asyncio.sleep(10) or {}
-
-        with patch.object(
-            EmergencyDetector, "_build_tier2_chain", return_value=slow_chain
-        ):
-            is_emergency, urgency, reason = await detector.detect_emergency_async(
-                "I have chest pain"
-            )
-            # Should still detect via Tier 1 even if Tier 2 times out
-            assert is_emergency is True
-            assert urgency == "high"
-
-    @pytest.mark.asyncio
-    async def test_tier2_llm_unavailable_uses_tier1(self, detector):
-        """Tier 2: When LLM is unavailable, Tier 1 still works."""
-        with patch.object(EmergencyDetector, "_build_tier2_chain", return_value=None):
-            is_emergency, urgency, reason = await detector.detect_emergency_async(
-                "I can't breathe"
-            )
-            assert is_emergency is True
-            assert urgency == "high"
-
-
-# ------------------------------------------------------------------
 # EmergencyDetector Tests — Urgency Responses
 # ------------------------------------------------------------------
 
@@ -307,6 +298,16 @@ class TestEmergencyUrgencyResponses:
         assert response["severity"] == "moderate"
         assert response["shouldSeeDoctor"] is True
         assert SAFETY_DISCLAIMER in response["reply"]
+
+    def test_self_harm_response_has_crisis_wording_and_no_numbers(self, detector):
+        response = detector.get_urgency_response("self_harm")
+        reply = response["reply"]
+        assert response["intent"] == "emergency"
+        assert response["severity"] == "severe"
+        assert "crisis line in your country" in reply
+        assert "tell someone near you" in reply
+        assert SAFETY_DISCLAIMER in reply
+        assert not any(ch.isdigit() for ch in reply)
 
     def test_unknown_urgency_defaults_to_high(self, detector):
         """Unknown urgency level should default to high response."""

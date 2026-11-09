@@ -74,16 +74,6 @@ def test_intent_classifier_client(fake_key):
     assert kwargs["timeout"] == ai_settings.INTENT_CLASSIFICATION_TIMEOUT
 
 
-def test_emergency_tier2_client(fake_key):
-    from app.ai.emergency_detector import EmergencyDetector
-
-    with patch("langchain_groq.ChatGroq") as mock_cls:
-        EmergencyDetector._build_tier2_chain()
-    kwargs = _kwargs(mock_cls)
-    assert kwargs["max_retries"] == 0
-    assert kwargs["timeout"] == ai_settings.EMERGENCY_CHECK_TIMEOUT
-
-
 def test_symptom_extractor_client(fake_key):
     from app.ai.symptom_extractor import _llm_extract_symptoms_sync
 

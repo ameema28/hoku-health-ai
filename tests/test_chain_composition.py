@@ -8,7 +8,6 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableLambda
 
 from app.ai.chatbot import HokuChatbot
-from app.ai.emergency_detector import EmergencyDetector
 from app.ai.intent_classifier import IntentClassifier, IntentEnum
 from app.ai.prompts import chat_prompt_template, rag_chat_prompt_template
 from app.utils.constants import SAFETY_DISCLAIMER
@@ -100,10 +99,3 @@ async def test_intent_chain_composes_with_fake_model(monkeypatch):
     intent, confidence = await classifier.classify_intent("book a nurse visit")
     assert intent == IntentEnum.BOOKING
     assert confidence == 0.95
-
-
-def test_tier2_emergency_chain_is_a_runnable(monkeypatch):
-    fake = FakeListChatModel(responses=['{"is_emergency": false}'])
-    with patch("langchain_groq.ChatGroq", return_value=fake):
-        chain = EmergencyDetector._build_tier2_chain()
-    assert chain.invoke({"text": "hello"}) == '{"is_emergency": false}'
