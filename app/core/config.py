@@ -104,13 +104,12 @@ class Settings(BaseSettings):
     CHAT_IP_RATE_PER_MINUTE: int = 20
 
     # ------------------------------------------------------------------
-    # Day 10: CORS (Vercel frontend + local dev)
+    # CORS: browser origins (other than the API's own) allowed to call it.
+    # The demo page at / is same-origin and needs none. Local dev only by
+    # default; add a deployed frontend's origin explicitly.
     # ------------------------------------------------------------------
     #: Comma-separated allowed origins. Parsed by ``cors_origins``.
-    CORS_ALLOW_ORIGINS: str = (
-        "http://localhost:5173,http://localhost:3000,"
-        "https://hoku-health-web.vercel.app"
-    )
+    CORS_ALLOW_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
 
     @property
     def is_production(self) -> bool:

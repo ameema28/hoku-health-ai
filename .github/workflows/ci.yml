@@ -83,9 +83,10 @@ jobs:
           --health-retries 10
 
     env:
-      # Unit tests use throwaway SQLite files (tests/db_utils.py).
+      # Unit tests use throwaway SQLite files (tests/db_utils.py); nothing is
+      # written into the checkout.
       # Integration tests read TEST_DATABASE_URL (Postgres here).
-      DATABASE_URL: sqlite:///./ci.db
+      DATABASE_URL: sqlite:////tmp/hoku-ci.db
       TEST_DATABASE_URL: postgresql://hoku:hoku_ci_password@localhost:5432/hoku_health_test
 
     steps:

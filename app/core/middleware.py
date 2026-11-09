@@ -167,6 +167,8 @@ class TimingMiddleware(BaseHTTPMiddleware):
         # Saved execution time: N/A (observability only, < 0.1ms overhead)
         # ------------------------------------------------------------------
         response.headers["X-Response-Time-Sec"] = f"{elapsed:.4f}"
+        # Every response (JSON included) is served as its declared type only.
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
 
         # Record in metrics store for all paths (not just timed endpoints)
         _metrics_store.record(path, elapsed, response.status_code)
