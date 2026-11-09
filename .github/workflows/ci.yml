@@ -221,6 +221,14 @@ jobs:
           docker logs hoku-ci
           exit 1
 
+      # CI installs requirements-dev.txt; this checks the image's own tree.
+      # groq 0.9.0 cannot build a client on httpx 0.28 (every reply would
+      # silently be a fallback), so construct one offline with a fake key.
+      - name: Groq client can be constructed inside the image
+        run: |
+          docker run --rm --network none --entrypoint python hoku-health-ai:ci -c \
+            "import groq; groq.Groq(api_key='gsk_ci_fake'); print('groq client OK')"
+
       - name: Refuses to start in production with a short SECRET_KEY
         run: |
           set +e

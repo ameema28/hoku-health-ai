@@ -25,6 +25,25 @@ def _kwargs(mock_cls: MagicMock) -> dict:
     return mock_cls.call_args.kwargs
 
 
+def test_groq_sdk_and_chatgroq_construct_offline():
+    """
+    The installed groq SDK and httpx must be compatible. groq 0.9.0 passes
+    proxies= to httpx.Client, which httpx 0.28 removed; with that pair no
+    client can be created and every reply silently becomes a fallback.
+    """
+    import groq
+    from langchain_core.utils import convert_to_secret_str
+    from langchain_groq import ChatGroq
+
+    groq.Groq(api_key="gsk_test_not_a_real_key")
+    ChatGroq(
+        model=ai_settings.GROQ_MAIN_MODEL,
+        api_key=convert_to_secret_str("gsk_test_not_a_real_key"),
+        timeout=1.0,
+        max_retries=0,
+    )
+
+
 def test_factory_fast_llm_real_client_has_no_retries(fake_key):
     from app.ai.llm_optimizer import LLMFactory
 
