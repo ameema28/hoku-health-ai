@@ -30,9 +30,10 @@ WORKDIR /app
 RUN pip install --index-url https://download.pytorch.org/whl/cpu torch==2.15.0
 
 # Layer 2: the other runtime dependencies (all have binary wheels, so no
-# compiler or libpq is needed).
-COPY requirements.txt .
-RUN pip install -r requirements.txt
+# compiler or libpq is needed). constraints.txt locks every transitive
+# version, so a rebuild resolves the same tree the tests ran on.
+COPY requirements.txt constraints.txt ./
+RUN pip install -r requirements.txt -c constraints.txt
 
 # Non-root runtime user.
 RUN useradd --create-home --uid 1000 --shell /usr/sbin/nologin hoku

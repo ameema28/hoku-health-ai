@@ -301,5 +301,5 @@ The image bakes in the code and the model. After any code change, rebuild, push 
 ## 4. Known limits
 
 - One instance only (in-memory limits, cache and metrics).
-- `fastapi==0.111.0` / `uvicorn==0.30.1` are pinned; transitive dependencies are not, so a rebuild can pull newer versions of them. Not checked with a vulnerability scanner.
+- Direct dependencies are pinned in `requirements.txt`, and every transitive version is locked in `constraints.txt` (Dockerfile and CI install with `-c constraints.txt`). Regenerate it from `pip freeze` of a fresh build whenever `requirements.txt` changes. Not checked with a vulnerability scanner.
 - Real Groq latency, Cloud Run cold start, Neon wake-up time and the live model's scope behaviour are not measured yet.
