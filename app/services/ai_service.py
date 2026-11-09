@@ -8,7 +8,7 @@ Day 4 updates:
 - process_chat receives intent from chatbot
 - Passes intent to create_chat_history for analytics
 - Delegates classify_intent to IntentClassifier
-- Passes raw_message for emergency detection to avoid HTML-escaping issues
+- Passes raw_message (the text as typed) for emergency detection
 """
 
 import logging
@@ -94,8 +94,8 @@ async def process_chat(
         user_id: Authenticated user ID.
         db: SQLAlchemy database session.
         raw_message: Optional raw message for emergency detection.
-            If provided, emergency detection runs on raw_message to avoid
-            HTML-escaping issues from sanitize_message().
+            If provided, emergency detection runs on raw_message (the
+            text exactly as typed).
 
     Returns:
         Dict[str, Any]: Response payload matching ChatMessageResponse.

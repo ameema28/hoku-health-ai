@@ -196,6 +196,20 @@ class TestValidators:
         assert out
         assert "headache" in out
 
+    def test_sanitize_message_does_not_escape_or_truncate(self) -> None:
+        """Text reaches the model, memory and history as typed."""
+        from app.utils.validators import sanitize_message, validate_message_length
+
+        assert (
+            sanitize_message("I can't sleep & I'm  tired\n\x07<3")
+            == "I can't sleep & I'm tired <3"
+        )
+        long_text = "a" * 990 + " && <>"
+        out = sanitize_message(long_text)
+        assert out == long_text
+        assert validate_message_length(out) is True
+        assert validate_message_length("a" * 1001) is False
+
     def test_validate_message_length_accepts_normal(self) -> None:
         """A normal-length message passes validation."""
         from app.utils.validators import validate_message_length

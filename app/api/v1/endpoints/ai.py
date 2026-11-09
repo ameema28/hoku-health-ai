@@ -364,9 +364,9 @@ async def chat(
         if not user_exists(db, request.userId):
             raise UserNotFoundException()
 
-        # Store raw message BEFORE sanitization for emergency detection --
-        # sanitize_message() HTML-escapes text (' -> &#x27;), which breaks
-        # emergency regex keywords like "can't breathe".
+        # Emergency detection runs on the message exactly as typed; the
+        # pipeline gets the normalised text (whitespace and control
+        # characters only; nothing is escaped or truncated).
         raw_message = request.message
         clean_message = sanitize_message(raw_message)
 

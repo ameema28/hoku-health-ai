@@ -5,7 +5,6 @@ Shared validation utilities for sanitizing user input and ensuring
 data integrity before processing by AI or persistence layers.
 """
 
-import html
 import logging
 import re
 
@@ -14,21 +13,25 @@ from app.utils.constants import MAX_MESSAGE_LENGTH
 logger = logging.getLogger(__name__)
 
 
+#: Control characters except tab/newline/carriage return (those become spaces).
+_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
 def sanitize_message(message: str) -> str:
     """
-    Sanitize a user message for safe processing.
+    Normalise a user message for the chat pipeline.
 
-    Steps:
-    1. Strip leading/trailing whitespace.
-    2. Escape HTML entities to prevent XSS injection.
-    3. Collapse excessive whitespace into single spaces.
-    4. Truncate to MAX_MESSAGE_LENGTH.
+    Steps: drop control characters, collapse whitespace runs into single
+    spaces, strip the ends. The text is NOT HTML-escaped: it is plain text
+    for the model, memory and history, and every client must render it as
+    text (the demo page uses ``textContent``). It is not truncated either;
+    ``validate_message_length`` rejects text over MAX_MESSAGE_LENGTH.
 
     Args:
         message: Raw user input string.
 
     Returns:
-        str: Cleaned, safe message string.
+        str: The normalised message ("" for non-string input).
     """
     if not isinstance(message, str):
         logger.warning(
@@ -37,25 +40,8 @@ def sanitize_message(message: str) -> str:
         )
         return ""
 
-    # Strip whitespace
-    cleaned = message.strip()
-
-    # Escape HTML to prevent injection
-    cleaned = html.escape(cleaned)
-
-    # Collapse multiple whitespace characters
-    cleaned = re.sub(r"\s+", " ", cleaned)
-
-    # Truncate to maximum allowed length
-    if len(cleaned) > MAX_MESSAGE_LENGTH:
-        logger.info(
-            "Message truncated from %d to %d chars",
-            len(cleaned),
-            MAX_MESSAGE_LENGTH,
-        )
-        cleaned = cleaned[:MAX_MESSAGE_LENGTH]
-
-    return cleaned
+    cleaned = _CONTROL_CHARS.sub("", message)
+    return re.sub(r"\s+", " ", cleaned).strip()
 
 
 def validate_user_id(user_id: int) -> bool:
