@@ -292,7 +292,3 @@ class ResponseCache:
             "entries": len(self._cache),
             "default_ttl_seconds": self.DEFAULT_TTL,
         }
-
-
-# Module-level singleton — shared across the application
-response_cache = ResponseCache()

@@ -44,28 +44,6 @@ def sanitize_message(message: str) -> str:
     return re.sub(r"\s+", " ", cleaned).strip()
 
 
-def validate_user_id(user_id: int) -> bool:
-    """
-    Validate that a user ID is a positive integer.
-
-    Args:
-        user_id: The user ID to validate.
-
-    Returns:
-        bool: True if valid, False otherwise.
-    """
-    try:
-        is_valid = isinstance(user_id, int) and user_id > 0
-        if not is_valid:
-            logger.warning(
-                "Invalid user_id received: %s",
-                user_id,
-            )
-        return is_valid
-    except Exception:
-        return False
-
-
 def validate_message_length(message: str) -> bool:
     """
     Validate that a message is within acceptable length bounds.

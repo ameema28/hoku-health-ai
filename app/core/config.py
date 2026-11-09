@@ -9,7 +9,6 @@ fields carry safe defaults so existing deployments and the 215-test
 suite are unaffected when the variables are absent.
 """
 
-import logging
 import os
 from typing import List, Optional
 
@@ -136,29 +135,6 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Factory function to create settings instance."""
     return Settings()
-
-
-def configure_logging() -> None:
-    """
-    Configure standard library logging for the application.
-
-    Retained for backward compatibility with Day 0-9 callers. New code
-    should prefer :func:`app.core.logging.configure_structured_logging`,
-    which this function delegates to when structured logging is selected.
-    """
-    settings_obj = get_settings()
-    if settings_obj.LOG_FORMAT.lower() == "json":
-        # Import locally to avoid a circular import at module load time.
-        from app.core.logging import configure_structured_logging
-
-        configure_structured_logging()
-        return
-
-    log_level = logging.DEBUG if settings_obj.DEBUG else logging.INFO
-    logging.basicConfig(
-        level=log_level,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
 
 
 settings = get_settings()

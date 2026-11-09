@@ -102,9 +102,6 @@ class AISettings(BaseSettings):
     # Model for LLM-based symptom extraction fallback ("" = GROQ_FAST_MODEL).
     SYMPTOM_EXTRACTION_MODEL: str = ""
 
-    # Maximum number of doctors to return in a specialist lookup.
-    DOCTOR_LOOKUP_LIMIT: int = 5
-
     # ------------------------------------------------------------------
     # Emergency Detection & Safety Guardrails (Day 7)
     # ------------------------------------------------------------------
@@ -145,7 +142,7 @@ def get_ai_settings() -> AISettings:
         "AI settings loaded: model=%s, temp=%.1f, max_tokens=%d, timeout=%.1fs, "
         "memory_limit=%d, memory_tokens=%d, intent_model=%s, "
         "intent_timeout=%.2fs, intent_threshold=%.2f, "
-        "symptom_timeout=%.2fs, doctor_limit=%d, "
+        "symptom_timeout=%.2fs, "
         "safety_retries=%d",
         ai_settings.GROQ_MAIN_MODEL,
         ai_settings.TEMPERATURE,
@@ -157,7 +154,6 @@ def get_ai_settings() -> AISettings:
         ai_settings.INTENT_CLASSIFICATION_TIMEOUT,
         ai_settings.INTENT_CONFIDENCE_THRESHOLD,
         ai_settings.SYMPTOM_EXTRACTION_TIMEOUT,
-        ai_settings.DOCTOR_LOOKUP_LIMIT,
         ai_settings.SAFETY_MAX_RETRIES,
     )
     return ai_settings

@@ -11,13 +11,6 @@ Day 5 additions:
 - RAG_SYSTEM_PROMPT: same clinical rules as SYSTEM_PROMPT, plus a
   {faq_context} slot.
 
-Day 6 additions:
-- SPECIALIST_SUGGESTION_PROMPT: Instructs the LLM to incorporate a
-  specific doctor suggestion into its empathetic response when provided.
-
-Day 7 additions:
-- EMERGENCY_PROMPT: Immediate urgent care instructions prompt.
-
 The no-diagnosis and no-dose rules live in the two reply system prompts
 (REPLY_RULES), and are also enforced after generation by
 app.ai.safety_guardrails.
@@ -149,22 +142,6 @@ Remember: respond ONLY in the required JSON format. Do not include markdown code
 )
 
 # ---------------------------------------------------------------------------
-# SPECIALIST SUGGESTION PROMPT (Day 6, unchanged)
-# ---------------------------------------------------------------------------
-SPECIALIST_SUGGESTION_PROMPT = """A specific doctor has been identified for the patient based on their symptoms:
-
-- Specialist: {specialist}
-- Doctor: {doctor_name}
-- Experience: {experience} years
-- Availability: {availability_summary}
-
-When responding, mention this doctor naturally and encouragingly. Do not
-guarantee an appointment -- direct the patient to book via the Hoku
-Health Care app or patient dashboard. Keep the tone empathetic and
-professional. Always include the mandatory disclaimer.
-"""
-
-# ---------------------------------------------------------------------------
 # INTENT CLASSIFICATION PROMPT (Day 4, unchanged)
 # ---------------------------------------------------------------------------
 INTENT_SYSTEM_PROMPT = """You are a healthcare intent classifier for Hoku Health Care. Your job is to classify patient messages into exactly one of five categories.
@@ -213,22 +190,3 @@ intent_classification_prompt_template = ChatPromptTemplate.from_messages(
         ("human", INTENT_CLASSIFICATION_PROMPT),
     ]
 )
-
-# ---------------------------------------------------------------------------
-# DAY 7: EMERGENCY PROMPT (New)
-# ---------------------------------------------------------------------------
-# Used when the EmergencyDetector triggers an emergency response.
-# Instructs the LLM (if used in Tier 2) to provide immediate urgent care guidance.
-EMERGENCY_PROMPT = """You are an emergency triage assistant for Hoku Health Care.
-
-CRITICAL INSTRUCTIONS:
-- This message indicates a potential medical EMERGENCY.
-- Emphasize the need for IMMEDIATE professional medical attention.
-- Provide the correct emergency contact numbers for the patient's region:
-  • Pakistan: 1122 (Rescue 1122) or 15 (Police Emergency)
-  • UAE: 998 (Ambulance) or 999 (Police)
-  • UK: 999 (Emergency) or 111 (NHS Non-emergency)
-- Do NOT attempt to diagnose — direct to emergency services immediately.
-- Keep the response brief, urgent, and actionable.
-- Always include: "Please consult a doctor for proper diagnosis."
-"""

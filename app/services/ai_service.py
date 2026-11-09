@@ -7,18 +7,17 @@ layer, and handles business logic between API endpoints and AI engines.
 Day 4 updates:
 - process_chat receives intent from chatbot
 - Passes intent to create_chat_history for analytics
-- Delegates classify_intent to IntentClassifier
+- Intent classification happens inside HokuChatbot.get_response
 - Passes raw_message (the text as typed) for emergency detection
 """
 
 import logging
-from typing import Any, Dict, Optional  # <-- Added Optional here
+from typing import Any, Dict, Optional
 
 from sqlalchemy.orm import Session
 
 from app.ai.chatbot import HokuChatbot
 from app.ai.config import ai_settings
-from app.ai.intent_classifier import IntentClassifier
 from app.ai.memory import HokuConversationMemory
 from app.core.exceptions import DatabaseOperationException
 from app.utils.constants import SAFETY_DISCLAIMER
@@ -27,29 +26,6 @@ logger = logging.getLogger(__name__)
 
 # Singleton chatbot instance (stateless, safe to reuse across requests)
 _chatbot: HokuChatbot = HokuChatbot()
-
-
-async def classify_intent(message: str) -> str:
-    """
-    Classify the intent of a user message.
-
-    Day 4: Delegates to IntentClassifier using fast_llm
-    (llama-3.1-8b-instant) for low-latency classification.
-
-    Args:
-        message: Sanitized user message.
-
-    Returns:
-        str: Intent label (e.g., "symptom", "booking", "general").
-    """
-    classifier = IntentClassifier()
-    intent, confidence = await classifier.classify_intent(message)
-    logger.debug(
-        "classify_intent wrapper: intent=%s, confidence=%.2f",
-        intent.value,
-        confidence,
-    )
-    return intent.value
 
 
 async def generate_response(

@@ -35,8 +35,6 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
-from unittest.mock import MagicMock as _MagicMock
-
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.output_parsers import StrOutputParser
 
@@ -323,12 +321,12 @@ class HokuChatbot:
             ]
 
             doctor_name_raw = getattr(top_doctor, "name", None)
-            if doctor_name_raw is None:
-                doctor_name = f"Dr. {getattr(top_doctor, 'specialty', 'Unknown')}"
-            elif _MagicMock is not None and isinstance(doctor_name_raw, _MagicMock):
-                doctor_name = f"Dr. {getattr(top_doctor, 'specialty', 'Unknown')}"
+            if isinstance(doctor_name_raw, str) and doctor_name_raw.strip():
+                doctor_name = doctor_name_raw
             else:
-                doctor_name = str(doctor_name_raw)
+                # No usable name: the placeholder the page and fallback
+                # text recognise and do not show as a person's name.
+                doctor_name = f"Dr. {getattr(top_doctor, 'specialty', 'Unknown')}"
 
             suggestion = DoctorSuggestion(
                 specialist=specialist,
@@ -375,8 +373,6 @@ class HokuChatbot:
         overall_start = time.perf_counter()
         logger.info("Processing chat for user_id=%s", user_id)
         metrics = get_metrics()
-        metrics.increment_request("/api/ai/chat")
-
         optimizer = ResponseOptimizer()
         message_for_emergency = raw_message if raw_message is not None else message
 
@@ -446,8 +442,6 @@ class HokuChatbot:
             try:
                 retrieve = getattr(self.rag, "retrieve", None)
                 if retrieve is None or not callable(retrieve):
-                    docs = []
-                elif _MagicMock is not None and isinstance(retrieve, _MagicMock):
                     docs = []
                 else:
                     rag_task = asyncio.to_thread(retrieve, message)

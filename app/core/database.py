@@ -5,7 +5,7 @@ Configures SQLAlchemy engine with optimized connection pooling parameters
 for production resilience and NFR-02 compliance.
 
 Day 8 updates:
-- pool_size=10, max_overflow=20 for concurrent request handling
+- pool_size / max_overflow from DB_POOL_SIZE / DB_MAX_OVERFLOW (defaults 10 / 20)
 - pool_recycle=3600 to prevent stale connections
 - pool_pre_ping=True for connection health validation
 - SQLite thread fallback (check_same_thread=False)

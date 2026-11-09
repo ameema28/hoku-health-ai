@@ -1,8 +1,8 @@
 """
 Hoku Health Care - Structured Logging & Request Correlation (Day 10).
 
-Replaces the ad-hoc ``logging.basicConfig`` format from
-``app/core/config.py::configure_logging`` with machine-parseable JSON,
+One-line JSON logs (or plain text with LOG_FORMAT=plain),
+configured once at import time by app.main,
 so Cloud Logging (Cloud Run), Grafana Loki or CloudWatch Insights can query
 fields instead of regexing free text.
 
