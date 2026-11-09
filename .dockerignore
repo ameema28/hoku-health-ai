@@ -1,0 +1,27 @@
+# Keep secrets, local state and dev files out of the build context.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.git
+.github
+.venv
+venv
+__pycache__
+*.py[cod]
+*.db
+*.sqlite
+*.sqlite3
+.coverage
+coverage.xml
+htmlcov
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.vscode
+.idea
+tests
+data
+docs
+*.md

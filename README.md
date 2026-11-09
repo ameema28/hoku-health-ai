@@ -22,8 +22,8 @@ This module provides the AI-powered health chatbot backend for Hoku Health Care,
 - **Caching**: In-memory SHA-256 keyed response cache with TTL expiration (Day 8)
 - **Connection Pooling**: SQLAlchemy QueuePool with SQLite thread fallback (Day 8)
 - **Observability**: Prometheus metrics at `/metrics` + JSON structured logging with correlation IDs and PHI redaction (Day 10)
-- **Rate Limiting**: In-process per-user sliding window, 5 req/min on `/api/ai/chat` (Day 10)
-- **Deployment**: Docker (multi-stage, non-root uid 1000) + docker-compose (pgvector) + Render.com blueprint (Day 10)
+- **Rate Limiting**: In-process sliding windows on `/api/ai/chat`: 10 req/min per user and 20 req/min per client IP (proxy-aware)
+- **Deployment**: Docker image for Cloud Run (CPU torch, non-root uid 1000, model baked in) + docker-compose (pgvector); see DEPLOYMENT.md
 - **CI/CD**: GitHub Actions — ruff, mypy, pytest, coverage gate, Docker smoke test (Day 10)
 
 ---
@@ -319,9 +319,9 @@ hoku-health-backend/
 ├── conftest.py              # Day 10: root sys.path bootstrap
 ├── .coveragerc              # Day 10: coverage source + omit list
 ├── mypy.ini                 # Day 10: mypy config (skips transformers)
-├── Dockerfile               # Day 10: multi-stage, non-root uid 1000, healthcheck
-├── docker-compose.yml       # Day 10: app + pgvector/pgvector:pg16
-├── render.yaml              # Day 10: Render.com blueprint (auto-deploy)
+├── Dockerfile               # Cloud Run image: CPU torch, non-root uid 1000, $PORT 8080
+├── docker-compose.yml       # pgvector/pgvector:pg16 + migrate + app
+├── DEPLOYMENT.md            # Cloud Run + Neon deployment guide
 ├── scripts/init-pgvector.sql  # Day 10: enables pgvector on first DB boot
 ├── .github/workflows/ci.yml   # Day 10: CI pipeline
 ├── CONTRIBUTING.md          # Day 10: branch/commit/PR conventions + safety rules
@@ -480,9 +480,8 @@ Day 9 was dedicated to a full system-wide audit, deep debugging, and surgical re
 Day 10 packages the entire chatbot for production: containerization, a CI/CD pipeline, full observability, API hardening, and a comprehensive integration/load/unit test layer — with zero regressions across all Day 0–9 tests.
 
 **Priority 1 — Deployment Infrastructure:**
-- **`Dockerfile`** — multi-stage build (`python:3.11-slim`), non-root user (uid 1000), embedded-model preload, and a `HEALTHCHECK` against `/api/ai/health`. Single-worker CMD by design (HokuMetrics/ResponseCache/Prometheus registry are in-process singletons — scale horizontally, not with `--workers`).
-- **`docker-compose.yml`** — app + `pgvector/pgvector:pg16`, with the `vector` extension auto-enabled on first boot via `scripts/init-pgvector.sql`. Full Day 5–8 environment wired through.
-- **`render.yaml`** — Render.com Blueprint provisioning the web service and a managed Postgres in one step, with `autoDeploy` on push to `main` and secrets (`GROQ_API_KEY`, auto-generated `SECRET_KEY`) declared.
+- **`Dockerfile`** — `python:3.11-slim`, CPU-only torch, runtime dependencies only, non-root user (uid 1000), embedding model downloaded before the app code is copied, Hugging Face offline at runtime, `$PORT` (default 8080). Single-worker CMD by design (rate limiters, cache and metrics are in-process).
+- **`docker-compose.yml`** — `pgvector/pgvector:pg16`, a one-shot `migrate` service (`init_db.py`) and the app.
 - **`.github/workflows/ci.yml`** — CI pipeline: `ruff` lint, `mypy` types, `pytest` with an 80% coverage gate against a `pgvector` Postgres service, plus a Docker build + health-check smoke test.
 - **`app/scripts/deploy_check.py`** — pre-flight verification (env vars, DB connectivity, Groq reachability, pgvector extension, vector-store population, and the clinical-safety invariants) with `--live-groq` and `--strict` modes and meaningful exit codes.
 
@@ -628,30 +627,16 @@ The chatbot never provides definitive diagnoses. Temperature is set to **0.3** t
 ### Docker (local / staging)
 
 ```bash
-cp .env.example .env          # set GROQ_API_KEY at minimum
-docker compose up --build
-
-# Once healthy, in another shell:
+cp .env.example .env          # set SECRET_KEY (32+ characters); GROQ_API_KEY optional
+docker compose up -d --build  # postgres (pgvector) -> migrate (init_db.py) -> app
 docker compose exec app python -m app.scripts.deploy_check
-docker compose exec app python init_db.py
-docker compose exec app python -m app.scripts.seed_faqs
 ```
 
-Compose brings up `pgvector/pgvector:pg16` (the `vector` extension is enabled automatically on first boot) and the API on http://localhost:8000. The image is multi-stage and runs as a non-root user (uid 1000) with a `HEALTHCHECK` on `/api/ai/health`.
+Compose serves the demo page and API on http://localhost:8000 (demo login on). The image runs as a non-root user (uid 1000), listens on `$PORT` (default 8080), contains the embedding model, and runs migrations + seeding at start-up when `DB_AUTO_MIGRATE=true`.
 
-### Render.com (production)
+### Google Cloud Run (public demo)
 
-`render.yaml` provisions the web service and a managed Postgres in one step:
-
-1. Push to `main`.
-2. Render Dashboard → **New → Blueprint** → select the repo.
-3. Enter the prompted secret `GROQ_API_KEY` (`SECRET_KEY` is auto-generated).
-4. First deploy: open a shell and run `python init_db.py && python -m app.scripts.seed_faqs`.
-5. Verify: `python -m app.scripts.deploy_check --strict`.
-
-`autoDeploy: true` redeploys on every push to `main`. The health probe targets `/api/ai/health`; the lifespan warm-up (pgvector check, Groq/model/pool warm-up) absorbs cold starts before traffic is routed.
-
-> **Free-tier note:** setting `PRELOAD_EMBEDDINGS=false` keeps the image small; the first RAG lookup then downloads the embedding model. If that fails, RAG degrades to zero-vectors and the chat endpoint still answers within NFR-02.
+See [DEPLOYMENT.md](DEPLOYMENT.md) for the image, the secrets, the Neon Postgres setup and the exact `gcloud` steps.
 
 ### Pre-flight verification
 

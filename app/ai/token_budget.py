@@ -38,8 +38,8 @@ def calculate_history_tokens(messages: List[BaseMessage]) -> int:
             # Each message has ~4 tokens of overhead (role tags, separators)
             total += 4
         return total
-    except ImportError:
-        # Windows fallback: character count / 4
+    except Exception:  # noqa: BLE001 - import error, or encoding unavailable offline
+        # Fallback: character count / 4
         # For English text, 1 token ≈ 4 characters on average.
         # This is conservative and safe for budget management.
         total = 0

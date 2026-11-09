@@ -1,14 +1,24 @@
 # =============================================================================
-# Hoku Health Care - Local / staging stack (Day 10)
+# Hoku Health Care - local stack: PostgreSQL + pgvector, migrations, app.
 #
-#   docker compose up --build      # "migrate" runs init_db.py before "app" starts
-#   docker compose exec app python -m app.scripts.deploy_check
+#   docker compose up -d --build     # "migrate" runs init_db.py before "app"
+#   open http://localhost:8000/      # demo page (demo login is on here)
+#   docker compose logs -f app
+#   docker compose down              # add -v to delete the database volume
 #
-# The postgres image is pgvector/pgvector:pg16, which ships the vector
-# extension pre-compiled. init-pgvector.sql (below, generated inline)
-# enables it on first boot so app/ai/rag.py takes the native pgvector
-# path instead of the SQLite cosine-similarity fallback.
+# SECRET_KEY must be in your .env (32+ characters). GROQ_API_KEY is optional:
+# without it every reply is a fallback built from FAQ/doctor data.
+# The postgres image ships pgvector; migration 003 enables it (the compose
+# user is a superuser).
 # =============================================================================
+
+x-app-env: &app-env
+  DATABASE_URL: postgresql://${POSTGRES_USER:-hoku}:${POSTGRES_PASSWORD:-hoku_dev_password}@postgres:5432/${POSTGRES_DB:-hoku_health}
+  SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set in .env (32+ characters)}
+  GROQ_API_KEY: ${GROQ_API_KEY:-}
+  ENVIRONMENT: ${ENVIRONMENT:-development}
+  LOG_FORMAT: ${LOG_FORMAT:-json}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
 
 services:
   postgres:
@@ -40,30 +50,19 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      args:
-        PRELOAD_EMBEDDINGS: "true"
-    image: hoku-health-backend:local
+    image: hoku-health-ai:local
     restart: "no"
     depends_on:
       postgres:
         condition: service_healthy
     command: ["python", "init_db.py"]
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-hoku}:${POSTGRES_PASSWORD:-hoku_dev_password}@postgres:5432/${POSTGRES_DB:-hoku_health}
-      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set in .env (32+ characters)}
-      ENVIRONMENT: ${ENVIRONMENT:-development}
-      GROQ_API_KEY: ${GROQ_API_KEY:?GROQ_API_KEY must be set in .env}
-      LOG_FORMAT: ${LOG_FORMAT:-json}
+      <<: *app-env
     networks:
       - hoku-net
 
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        PRELOAD_EMBEDDINGS: "true"
-    image: hoku-health-backend:local
+    image: hoku-health-ai:local
     container_name: hoku-api
     restart: unless-stopped
     depends_on:
@@ -72,49 +71,19 @@ services:
       migrate:
         condition: service_completed_successfully
     environment:
-      # ---- Core (app/core/config.py) ----------------------------------
-      DATABASE_URL: postgresql://${POSTGRES_USER:-hoku}:${POSTGRES_PASSWORD:-hoku_dev_password}@postgres:5432/${POSTGRES_DB:-hoku_health}
-      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set in .env (32+ characters)}
-      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
-      DEMO_LOGIN_ENABLED: ${DEMO_LOGIN_ENABLED:-false}
-      ENVIRONMENT: ${ENVIRONMENT:-development}
-      DEBUG: ${DEBUG:-false}
-
-      # ---- Groq / AI (app/ai/config.py) -------------------------------
-      GROQ_API_KEY: ${GROQ_API_KEY:?GROQ_API_KEY must be set in .env}
-      GROQ_FAST_MODEL: ${GROQ_FAST_MODEL:-llama-3.1-8b-instant}
-      GROQ_MAIN_MODEL: ${GROQ_MAIN_MODEL:-llama-3.3-70b-versatile}
-      TEMPERATURE: ${TEMPERATURE:-0.3}
-      MAX_TOKENS: ${MAX_TOKENS:-512}
-      GROQ_TIMEOUT_SECONDS: ${GROQ_TIMEOUT_SECONDS:-3.5}
-
-      # ---- RAG (Day 5) ------------------------------------------------
-      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
-      VECTOR_DIMENSION: ${VECTOR_DIMENSION:-384}
-      RAG_SIMILARITY_THRESHOLD: ${RAG_SIMILARITY_THRESHOLD:-0.35}
-      RAG_TOP_K: ${RAG_TOP_K:-3}
-      COLLECTION_NAME: ${COLLECTION_NAME:-hoku_health_faqs}
-      RAG_LOOKUP_TIMEOUT: ${RAG_LOOKUP_TIMEOUT:-0.5}
-
-      # ---- Day 8 performance ------------------------------------------
-      RESPONSE_CACHE_ENABLED: ${RESPONSE_CACHE_ENABLED:-true}
-      RESPONSE_CACHE_TTL_SECONDS: ${RESPONSE_CACHE_TTL_SECONDS:-300}
-      CACHE_EXCLUDE_INTENTS: ${CACHE_EXCLUDE_INTENTS:-emergency,symptom}
-      DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
-      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-20}
-
-      # ---- Day 10 observability ---------------------------------------
-      LOG_FORMAT: ${LOG_FORMAT:-json}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      METRICS_ENABLED: ${METRICS_ENABLED:-true}
+      <<: *app-env
+      DB_AUTO_MIGRATE: "false"   # the migrate service already ran
+      DEMO_LOGIN_ENABLED: ${DEMO_LOGIN_ENABLED:-true}
       METRICS_TOKEN: ${METRICS_TOKEN:-}
-      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
       RATE_LIMIT_REQUESTS_PER_MINUTE: ${RATE_LIMIT_REQUESTS_PER_MINUTE:-10}
-      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-http://localhost:5173,http://localhost:3000}
+      CHAT_IP_RATE_PER_MINUTE: ${CHAT_IP_RATE_PER_MINUTE:-20}
+      DEMO_RATE_LIMIT_PER_HOUR: ${DEMO_RATE_LIMIT_PER_HOUR:-20}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-5}
     ports:
-      - "${APP_PORT:-8000}:8000"
+      - "${APP_PORT:-8000}:8080"
     healthcheck:
-      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8000/api/ai/health"]
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=4).status == 200 else 1)"]
       interval: 30s
       timeout: 5s
       retries: 3

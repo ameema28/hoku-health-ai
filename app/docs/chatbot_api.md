@@ -1,7 +1,7 @@
 # Hoku Health Care — AI Chatbot API Reference
 
 Base URL (local): `http://localhost:8000`
-Base URL (prod): `https://hoku-health-backend.onrender.com`
+Base URL: your deployment (see `DEPLOYMENT.md`); locally `http://localhost:8000`.
 
 All examples use `curl`. Interactive docs live at `/docs` (Swagger) and
 `/redoc`.

@@ -1,112 +1,79 @@
-# =============================================================================
-# Hoku Health Care - AI Chatbot Backend (Day 10: Production Deployment)
+# Hoku Health Care AI chatbot: container image for Google Cloud Run (and local Docker).
 #
-# Multi-stage build:
-#   Stage 1 (builder)  - compiles wheels into an isolated virtualenv
-#   Stage 2 (runtime)  - slim image, non-root uid 1000, no build toolchain
-#
-# Design notes:
-#   * python:3.11-slim keeps the base ~120MB; the virtualenv is copied
-#     wholesale so no compiler ever lands in the runtime layer.
-#   * PRELOAD_EMBEDDINGS bakes sentence-transformers/all-MiniLM-L6-v2
-#     (~90MB) into the image so the first patient request never pays a
-#     cold-start model download. Set to "false" for Render's 512MB free
-#     tier if the image exceeds the disk quota - RAG then degrades
-#     gracefully to zero-vectors (see app/ai/embeddings.py).
-#   * HEALTHCHECK targets /api/ai/health, which is unauthenticated by
-#     design (app/api/v1/endpoints/ai.py).
-# =============================================================================
+# - CPU-only torch, installed in its own layer from the PyTorch CPU index.
+# - Runtime dependencies only: requirements-dev.txt is never installed.
+# - Runs as a non-root user (uid 1000) and listens on $PORT (default 8080).
+# - The embedding model and the tiktoken encoding are downloaded into the image
+#   BEFORE the app code is copied (code changes reuse those layers), and
+#   Hugging Face is offline at runtime.
+# - No secret is in the image. Outside ENVIRONMENT=test the app refuses to
+#   start without a SECRET_KEY of 32+ characters (Secret Manager on Cloud Run).
+# - With DB_AUTO_MIGRATE=true (default) every start runs init_db.py first:
+#   Alembic migrations plus idempotent doctor and FAQ seeding.
 
-# -----------------------------------------------------------------------------
-# Stage 1: builder
-# -----------------------------------------------------------------------------
-FROM python:3.11-slim AS builder
+FROM python:3.11-slim
 
-ARG PRELOAD_EMBEDDINGS=true
+LABEL org.opencontainers.image.title="hoku-health-ai" \
+      org.opencontainers.image.description="Hoku Health Care AI chatbot (FastAPI + Groq + LangChain)" \
+      org.opencontainers.image.source="https://github.com/ameema28/hoku-health-ai"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
-
-# psycopg2-binary ships wheels, but bcrypt/tiktoken may need a compiler on
-# some architectures. libpq-dev is required for any psycopg2 source build.
-RUN apt-get update && apt-get install --no-install-recommends -y \
-        build-essential \
-        libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN python -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
-
-WORKDIR /build
-
-COPY requirements.txt .
-
-RUN pip install --upgrade pip setuptools wheel \
-    && pip install -r requirements.txt
-
-# Pre-download the RAG embedding model into a cache directory that the
-# runtime stage copies to the non-root user's HOME.
-RUN mkdir -p /opt/model-cache
-ENV HF_HOME=/opt/model-cache \
-    SENTENCE_TRANSFORMERS_HOME=/opt/model-cache
-RUN if [ "$PRELOAD_EMBEDDINGS" = "true" ]; then \
-        python -c "from sentence_transformers import SentenceTransformer; \
-SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')" ; \
-    else \
-        echo "Skipping embedding model preload (PRELOAD_EMBEDDINGS=$PRELOAD_EMBEDDINGS)" ; \
-    fi
-
-# -----------------------------------------------------------------------------
-# Stage 2: runtime
-# -----------------------------------------------------------------------------
-FROM python:3.11-slim AS runtime
-
-LABEL org.opencontainers.image.title="hoku-health-backend" \
-      org.opencontainers.image.description="Hoku Health Care AI Chatbot (FastAPI + Groq + LangChain)" \
-      org.opencontainers.image.vendor="TechNexus Virtual University" \
-      org.opencontainers.image.source="https://github.com/technexus/hoku-health-backend"
-
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app \
-    PATH="/opt/venv/bin:$PATH" \
-    HF_HOME=/home/hoku/.cache/huggingface \
-    SENTENCE_TRANSFORMERS_HOME=/home/hoku/.cache/huggingface \
-    ENVIRONMENT=production \
-    PORT=8000
-
-# libpq5 is the only runtime shared library psycopg2 needs.
-# curl is used by HEALTHCHECK.
-RUN apt-get update && apt-get install --no-install-recommends -y \
-        libpq5 \
-        curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Non-root user, fixed uid/gid 1000 so bind-mounted volumes keep sane
-# ownership in docker-compose and on Render.
-RUN groupadd --gid 1000 hoku \
-    && useradd --uid 1000 --gid 1000 --create-home --shell /usr/sbin/nologin hoku
-
-COPY --from=builder /opt/venv /opt/venv
-COPY --from=builder --chown=1000:1000 /opt/model-cache /home/hoku/.cache/huggingface
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_DEFAULT_TIMEOUT=120
 
 WORKDIR /app
 
-COPY --chown=1000:1000 alembic.ini pytest.ini init_db.py ./
-COPY --chown=1000:1000 alembic/ ./alembic/
-COPY --chown=1000:1000 app/ ./app/
+# Layer 1: CPU-only torch from the PyTorch CPU index only. The torch==2.15.0
+# pin in requirements.txt is then already satisfied, so pip keeps this build.
+RUN pip install --index-url https://download.pytorch.org/whl/cpu torch==2.15.0
 
-USER 1000
+# Layer 2: the other runtime dependencies (all have binary wheels, so no
+# compiler or libpq is needed).
+COPY requirements.txt .
+RUN pip install -r requirements.txt
 
-EXPOSE 8000
+# Non-root runtime user.
+RUN useradd --create-home --uid 1000 --shell /usr/sbin/nologin hoku
 
-# The container is healthy only when the AI service reports "ok".
-HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-    CMD curl --fail --silent http://localhost:${PORT}/api/ai/health || exit 1
+USER hoku
+ENV HOME=/home/hoku \
+    HF_HOME=/home/hoku/.cache/huggingface \
+    SENTENCE_TRANSFORMERS_HOME=/home/hoku/.cache/huggingface \
+    TIKTOKEN_CACHE_DIR=/home/hoku/.cache/tiktoken
 
-# Single worker by default: HokuMetrics, ResponseCache and the Prometheus
-# registry are all in-process singletons. Scale horizontally (more
-# containers), not with --workers, or the metrics will fragment.
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT} --workers 1 --proxy-headers --forwarded-allow-ips '*'"]
+# Layer 3: the embedding model (same name as EMBEDDING_MODEL) and the
+# tiktoken encoding, downloaded before any app code is copied.
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')" \
+ && python -c "import tiktoken; tiktoken.get_encoding('cl100k_base')"
+
+ENV HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1
+
+USER root
+
+# Application code is owned by root, so the runtime user can only read it.
+COPY --chown=root:root alembic.ini init_db.py ./
+COPY --chown=root:root alembic ./alembic
+COPY --chown=root:root app ./app
+
+USER hoku
+
+# Runtime defaults. Without DATABASE_URL the database is SQLite in /tmp,
+# which is reset whenever the container restarts. Demo login stays off
+# unless enabled.
+ENV PORT=8080 \
+    ENVIRONMENT=production \
+    DEBUG=false \
+    LOG_FORMAT=json \
+    DATABASE_URL=sqlite:////tmp/hoku.db \
+    DB_AUTO_MIGRATE=true \
+    DEMO_LOGIN_ENABLED=false
+
+EXPOSE 8080
+
+# One worker: the rate limiters, response cache and metrics are in memory,
+# per process. --no-proxy-headers keeps request.client as the socket peer;
+# TRUST_PROXY decides whether X-Forwarded-For is used (app/core/client_ip.py).
+CMD ["sh", "-c", "if [ \"$DB_AUTO_MIGRATE\" = \"true\" ]; then python init_db.py || exit 1; fi; exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080} --workers 1 --no-proxy-headers"]
