@@ -56,6 +56,10 @@ class ResponseCache:
     # Symptom/emergency intents are excluded from caching entirely by
     # should_cache(), so this relaxation cannot leak personalised clinical
     # advice between conversational contexts.
+    #
+    # HokuChatbot reads and writes the cache only on a first turn (no
+    # history), because a reply written with history can answer a follow-up
+    # that means something else in another conversation.
     CONTEXT_FREE_INTENTS: frozenset = frozenset({"general"})
 
     def __init__(self) -> None:

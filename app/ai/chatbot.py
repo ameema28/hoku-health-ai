@@ -10,10 +10,10 @@ Flow:
 1. Emergency detection (keyword regex, <50ms): fixed urgent reply
 2. Intent classification + Memory loading + RAG retrieval (asyncio.gather);
    an ``emergency`` intent also gets the fixed urgent reply
-3. Response cache lookup (<5ms)
+3. Response cache lookup (<5ms), first turn only (no history)
 4. LLM generation with remaining budget timeout
 5. Post-LLM Safety Verification (3-strike safety retry)
-6. Cache persistence (non-emergency only)
+6. Cache persistence (first-turn, non-clinical replies only)
 7. Persistence with intent metadata
 
 Day 8 Performance Optimizations:
@@ -411,39 +411,6 @@ class HokuChatbot:
             )
 
         # ---------------------------------------------------------------
-        # Step 1.5: Fast-path cache check for GENERAL intent
-        # GENERAL intent keys don't include conversation history, so we
-        # can check the cache before paying for intent/memory/RAG.
-        # This saves ~0.5-1.5s on cache hits for repeated questions.
-        # SAFETY: Symptom/emergency intents are never cached, so a
-        # stale general response can never leak for a clinical query.
-        # ---------------------------------------------------------------
-        if self.response_cache.should_cache("general", is_emergency=False):
-            cached_response = self.response_cache.get(
-                message=message,
-                intent="general",
-                last_3_messages=[],
-            )
-            if cached_response:
-                try:
-                    parsed_cache = json.loads(cached_response)
-                    parsed_cache["intent"] = "general"
-                    parsed_cache["confidence"] = 1.0
-                    parsed_cache["doctor_suggestion"] = None
-                    total_elapsed = time.perf_counter() - overall_start
-                    metrics.record_latency("/api/ai/chat", total_elapsed)
-                    logger.info(
-                        "Fast-path cache HIT for user_id=%s in %.3fs",
-                        user_id,
-                        total_elapsed,
-                    )
-                    return parsed_cache
-                except json.JSONDecodeError:
-                    logger.warning(
-                        "Fast-path cache corruption, proceeding with pipeline"
-                    )
-
-        # ---------------------------------------------------------------
         # Step 2: Concurrent Operations (asyncio.gather with return_exceptions)
         # Each task handles its own internal timeout. No outer ceiling.
         # ---------------------------------------------------------------
@@ -580,21 +547,18 @@ class HokuChatbot:
         # Step 3: Response Cache Lookup
         # ---------------------------------------------------------------
         cache_start = time.perf_counter()
-        last_3_messages = []
-        if history_list and len(history_list) > 0:
-            last_3_messages = [
-                getattr(msg, "content", str(msg)) for msg in history_list[-3:]
-            ]
+        # Only a first turn (no history) reads or writes the cache: a reply
+        # written with history may answer a follow-up ("Is it contagious?")
+        # that means something else in another conversation.
+        use_cache = not history_list and self.response_cache.should_cache(
+            intent.value, is_emergency=False
+        )
 
-        if self.response_cache.should_cache(intent.value, is_emergency=False):
-            # For GENERAL intent, exclude conversation history from the cache key.
-            # This ensures repeated standalone questions (e.g. "What services...?")
-            # hit the cache even after prior chat turns.
-            cache_key_history = [] if intent == IntentEnum.GENERAL else last_3_messages
+        if use_cache:
             cached_response = self.response_cache.get(
                 message=message,
                 intent=intent.value,
-                last_3_messages=cache_key_history,
+                last_3_messages=[],
             )
             if cached_response:
                 cache_elapsed = time.perf_counter() - cache_start
@@ -799,7 +763,7 @@ class HokuChatbot:
             # Step 9: Cache Persistence
             # ---------------------------------------------------------------
             cache_persist_start = time.perf_counter()
-            if self.response_cache.should_cache(intent.value, is_emergency=False):
+            if use_cache:
                 response_to_cache = json.dumps(
                     {
                         "reply": parsed.get("reply", ""),
@@ -810,13 +774,10 @@ class HokuChatbot:
                         else True,
                     }
                 )
-                cache_key_history = (
-                    [] if intent == IntentEnum.GENERAL else last_3_messages
-                )
                 self.response_cache.set(
                     message=message,
                     intent=intent.value,
-                    last_3_messages=cache_key_history,
+                    last_3_messages=[],
                     response=response_to_cache,
                     is_emergency=False,
                 )

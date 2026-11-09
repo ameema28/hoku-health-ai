@@ -12,6 +12,7 @@ import pytest
 from langchain_core.documents import Document
 
 from app.ai import fallback_responses as fr
+from app.ai.caching import ResponseCache
 from app.ai.chatbot import HokuChatbot
 from app.ai.intent_classifier import IntentEnum
 from app.ai.prompts import (
@@ -250,6 +251,66 @@ class TestChatbotFallbackPaths:
             result = await bot.get_response("wait time?", 1, MagicMock())
         assert result["fallback_used"] is False
         assert result["reply"].startswith("Visits are usually confirmed")
+
+    async def test_follow_up_with_history_is_never_cached(self):
+        """Two users ask the same follow-up after different first questions."""
+        from langchain_core.messages import AIMessage, HumanMessage
+
+        bot = _bot()
+        bot._response_cache = ResponseCache()  # real cache (conftest mocks it)
+        bot._main_llm = MagicMock()
+
+        def _reply(text):
+            return json.dumps(
+                {
+                    "reply": f"{text} {SAFETY_DISCLAIMER}",
+                    "suggestedSpecialist": None,
+                    "severity": "mild",
+                    "shouldSeeDoctor": False,
+                }
+            )
+
+        generate = AsyncMock(
+            side_effect=[_reply("About the rash: ..."), _reply("About flu: ...")]
+        )
+        histories = {
+            1: [HumanMessage(content="I have a rash"), AIMessage(content="...")],
+            2: [HumanMessage(content="I have flu"), AIMessage(content="...")],
+        }
+        with patch("app.ai.chatbot.HokuConversationMemory") as mem, patch(
+            "app.ai.chatbot.HokuChatbot._generation_chain"
+        ), patch("app.ai.chatbot.generate_with_timeout", generate):
+            mem.return_value.load_memory.side_effect = lambda user_id, db: histories[
+                user_id
+            ]
+            first = await bot.get_response("Is it contagious?", 1, MagicMock())
+            second = await bot.get_response("Is it contagious?", 2, MagicMock())
+        assert generate.await_count == 2
+        assert first["reply"].startswith("About the rash")
+        assert second["reply"].startswith("About flu")
+
+    async def test_first_turn_reply_is_cached(self, no_memory):
+        bot = _bot()
+        bot._response_cache = ResponseCache()  # real cache (conftest mocks it)
+        bot._main_llm = MagicMock()
+        payload = json.dumps(
+            {
+                "reply": f"We offer home nursing. {SAFETY_DISCLAIMER}",
+                "suggestedSpecialist": None,
+                "severity": "mild",
+                "shouldSeeDoctor": False,
+            }
+        )
+        generate = AsyncMock(return_value=payload)
+        with patch("app.ai.chatbot.HokuChatbot._generation_chain"), patch(
+            "app.ai.chatbot.generate_with_timeout", generate
+        ):
+            await bot.get_response("What services do you offer?", 1, MagicMock())
+            again = await bot.get_response(
+                "What services do you offer?", 2, MagicMock()
+            )
+        assert generate.await_count == 1
+        assert again["reply"].startswith("We offer home nursing")
 
     async def test_emergency_intent_gets_fixed_reply_without_llm(self, no_memory):
         from app.ai.emergency_detector import EmergencyDetector
