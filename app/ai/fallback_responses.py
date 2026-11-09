@@ -79,40 +79,16 @@ def _field(obj: Any, name: str) -> Any:
 
 def doctor_sentence(doctor_suggestion: Any) -> str:
     """
-    One sentence about the suggested doctor, from database fields only.
+    One short sentence naming the suggested specialty.
 
-    The demo page and API clients show the full suggestion (including the
-    available slots) from ``doctor_suggestion``, so the text does not
-    repeat the slot list.
+    The demo page and API clients show the full suggestion (name,
+    experience, the "no <specialty> available" note and the open times)
+    from ``doctor_suggestion``, so the text does not repeat any of it.
     """
     specialist = _field(doctor_suggestion, "specialist")
     if not specialist:
         return ""
-    name = _field(doctor_suggestion, "doctor_name")
-    experience = _field(doctor_suggestion, "experience")
-    requested = _field(doctor_suggestion, "requested_specialist")
-
-    parts = []
-    if requested:
-        parts.append(
-            f"No {requested} is available right now, so a {specialist} is "
-            "suggested as a first contact."
-        )
-    else:
-        parts.append(f"A {specialist} can look into this.")
-    has_experience = isinstance(experience, int) and experience > 0
-    # The chatbot fills a missing name with the placeholder "Dr. <specialty>";
-    # repeating that as a name would read like an invented person.
-    if name and name != f"Dr. {specialist}":
-        detail = f"{name} ({specialist}"
-        if has_experience:
-            detail += f", {experience} years of experience"
-        parts.append(f"Suggested doctor: {detail}).")
-    elif has_experience:
-        parts.append(
-            f"The suggested {specialist} has {experience} years of experience."
-        )
-    return " ".join(parts)
+    return f"A {specialist} can look into this."
 
 
 def build_fallback_reply(

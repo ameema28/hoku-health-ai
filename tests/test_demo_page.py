@@ -87,7 +87,12 @@ class TestPageAndHeaders:
             "fallback_used",
         }
         headers = set(re.findall(r'headers\.get\("([^"]+)"\)', script))
-        assert headers == {"X-Hoku-Emergency", "X-Response-Time-Sec"}
+        assert headers == {"X-Hoku-Emergency", "X-Response-Time-Sec", "Retry-After"}
+
+    def test_rate_limit_and_new_session_messages(self):
+        script = _script()
+        assert "Retry-After" in script
+        assert "Your demo session expired, so a new one was started." in script
 
     def test_mobile_rules_present(self):
         assert "max-width: 600px" in DEMO_PAGE_HTML

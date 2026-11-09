@@ -103,6 +103,7 @@ header p { margin: 2px 0 0; color: var(--muted); font-size: 0.85rem; }
 .msg.user { align-self: flex-end; background: var(--user); border-color: transparent; }
 .msg.bot { align-self: flex-start; }
 .msg.error { color: var(--danger); }
+.msg.notice { align-self: center; max-width: 100%; color: var(--muted); font-size: 0.82rem; background: transparent; border-style: dashed; }
 .msg.emergency { border-color: var(--danger); background: var(--danger-bg); }
 .flag { font-weight: 700; color: var(--danger); margin-bottom: 4px; white-space: normal; }
 .doctor {
@@ -399,6 +400,15 @@ footer { color: var(--muted); font-size: 0.75rem; padding-bottom: 8px; }
     return parseInt(JSON.parse(atob(part)).sub, 10);
   }
 
+  // "Please try again in N seconds." from the Retry-After header, if any.
+  function retryText(response, fallback) {
+    var seconds = parseInt(response.headers.get("Retry-After"), 10);
+    if (isFinite(seconds) && seconds > 0) {
+      return " Please try again in " + seconds + (seconds === 1 ? " second." : " seconds.");
+    }
+    return " " + fallback;
+  }
+
   async function startSession() {
     token = null;
     userId = null;
@@ -407,7 +417,7 @@ footer { color: var(--muted); font-size: 0.75rem; padding-bottom: 8px; }
       throw new DemoError("Demo login is disabled on this server.");
     }
     if (response.status === 429) {
-      throw new DemoError("Too many demo sessions from your network. Please try again later.");
+      throw new DemoError("Too many demo sessions from your network." + retryText(response, "Please try again later."));
     }
     if (!response.ok) {
       throw new DemoError("Could not start a demo session (HTTP " + response.status + ").");
@@ -426,19 +436,22 @@ footer { color: var(--muted); font-size: 0.75rem; padding-bottom: 8px; }
   }
 
   async function ask(message) {
+    var renewed = false;
     if (!token) { await startSession(); }
     var response = await postChat(message);
     if (response.status === 401) {
+      // The 15-minute demo token expired: a new demo user has no history.
       await startSession();
+      renewed = true;
       response = await postChat(message);
     }
     if (response.status === 429) {
-      throw new DemoError("Too many requests. Please wait a minute and try again.");
+      throw new DemoError("Too many requests." + retryText(response, "Please wait a minute and try again."));
     }
     if (!response.ok) {
       throw new DemoError("Something went wrong (HTTP " + response.status + "). Please try again.");
     }
-    return { data: await response.json(), headers: response.headers };
+    return { data: await response.json(), headers: response.headers, renewed: renewed };
   }
 
   async function send(message) {
@@ -450,6 +463,9 @@ footer { color: var(--muted); font-size: 0.75rem; padding-bottom: 8px; }
     try {
       var result = await ask(message);
       typing.remove();
+      if (result.renewed) {
+        addMessage("notice", "Your demo session expired, so a new one was started. Earlier messages in this chat are not used as context.");
+      }
       addReply(result.data, result.headers);
       statusLine.textContent = "Ready";
     } catch (err) {

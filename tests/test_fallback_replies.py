@@ -56,25 +56,19 @@ class TestBuildFallbackReply:
         reply = fr.build_fallback_reply("general", [_doc()], None)
         assert reply == f"{FAQ_ANSWER} {SAFETY_DISCLAIMER}"
 
-    def test_doctor_sentence_from_db_fields(self):
+    def test_doctor_sentence_names_only_the_specialty(self):
+        """The doctor box shows name, experience and times: no repeat."""
         reply = fr.build_fallback_reply("symptom", [], _doctor())
-        assert "A Dermatologist can look into this." in reply
-        assert "Dr. Sana Malik (Dermatologist, 9 years of experience)" in reply
-        assert reply.endswith(SAFETY_DISCLAIMER)
+        assert reply == f"A Dermatologist can look into this. {SAFETY_DISCLAIMER}"
+        assert "Sana Malik" not in reply
+        assert "years of experience" not in reply
 
-    def test_placeholder_name_is_not_repeated(self):
-        doctor = _doctor()
-        doctor.doctor_name = "Dr. Dermatologist"
-        reply = fr.build_fallback_reply("symptom", None, doctor)
-        assert "Dr. Dermatologist" not in reply
-        assert "The suggested Dermatologist has 9 years of experience." in reply
-
-    def test_requested_specialist_is_explained(self):
+    def test_requested_specialist_is_left_to_the_doctor_box(self):
         doctor = _doctor(requested="Orthopedic Surgeon")
         doctor.specialist = "General Physician"
         reply = fr.build_fallback_reply("symptom", None, doctor)
-        assert "No Orthopedic Surgeon is available right now" in reply
-        assert "General Physician" in reply
+        assert "A General Physician can look into this." in reply
+        assert "Orthopedic Surgeon" not in reply
 
     def test_faq_and_doctor_both_used(self):
         reply = fr.build_fallback_reply("general", [_doc()], _doctor())
@@ -82,7 +76,7 @@ class TestBuildFallbackReply:
 
     def test_doctor_dict_dump_works(self):
         reply = fr.build_fallback_reply("symptom", None, _doctor().model_dump())
-        assert "Dr. Sana Malik" in reply
+        assert "A Dermatologist can look into this." in reply
 
     @pytest.mark.parametrize(
         "intent,expected",
@@ -180,7 +174,8 @@ class TestChatbotFallbackPaths:
         assert result["fallback_used"] is True
         assert result["doctor_suggestion"]["doctor_name"] == "Dr. Sana Malik"
         assert result["suggestedSpecialist"] == "Dermatologist"
-        assert "Dr. Sana Malik" in result["reply"]
+        assert "A Dermatologist can look into this." in result["reply"]
+        assert "Dr. Sana Malik" not in result["reply"]
 
     async def test_no_llm_nothing_retrieved_static(self, no_memory):
         bot = _bot(intent=IntentEnum.MEDICATION)
