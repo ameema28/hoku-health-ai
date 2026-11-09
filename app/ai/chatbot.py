@@ -88,6 +88,21 @@ _SPECIALIST_ELIGIBLE_INTENTS = {IntentEnum.SYMPTOM, IntentEnum.GENERAL}
 # Minimum LLM timeout — never go below this, even if budget is tight.
 _MIN_LLM_TIMEOUT: float = 0.3
 
+# Markdown the reply rules forbid; the demo page shows replies as plain text.
+_MD_FENCE = re.compile(r"```[a-zA-Z]*\n?")
+_MD_EMPHASIS = re.compile(r"(\*\*|__)(.+?)\1", re.DOTALL)
+_MD_HEADING = re.compile(r"^\s{0,3}#{1,6}\s+", re.MULTILINE)
+_MD_LIST = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+", re.MULTILINE)
+
+
+def _strip_markdown(reply: str) -> str:
+    """Remove code fences, bold/underline markers, headings and list markers."""
+    text = _MD_FENCE.sub("", reply)
+    text = _MD_EMPHASIS.sub(r"\2", text)
+    text = _MD_HEADING.sub("", text)
+    text = _MD_LIST.sub("", text)
+    return text.strip()
+
 
 class HokuChatbot:
     """
@@ -942,52 +957,61 @@ class HokuChatbot:
             return json.dumps(result)
         return str(result)
 
-    def _parse_llm_output(self, text: str) -> Dict[str, Any]:
-        """Parse JSON with multiple fallback strategies."""
-        try:
-            data = json.loads(text.strip())
+    @staticmethod
+    def _fields_from_json(data: Dict[str, Any]) -> Dict[str, Any]:
+        """The four reply fields from a parsed JSON object."""
+        severity = data.get("severity")
+        should_see = data.get("shouldSeeDoctor")
+        return {
+            "reply": data.get("reply") or "",
+            "suggestedSpecialist": data.get("suggestedSpecialist"),
+            "severity": "unknown"
+            if severity in (None, "null", "Null", "NULL")
+            else severity,
+            "shouldSeeDoctor": should_see if should_see is not None else True,
+        }
+
+    @staticmethod
+    def _first_json_object(text: str) -> Optional[Dict[str, Any]]:
+        """The first JSON object in ``text`` that has a "reply" key, if any."""
+        decoder = json.JSONDecoder()
+        start = text.find("{")
+        while start != -1:
+            try:
+                data, _end = decoder.raw_decode(text, start)
+            except json.JSONDecodeError:
+                data = None
             if isinstance(data, dict) and "reply" in data:
-                return {
-                    "reply": data.get("reply", ""),
-                    "suggestedSpecialist": data.get("suggestedSpecialist"),
-                    "severity": (
-                        "unknown"
-                        if data.get("severity") in (None, "null", "Null", "NULL")
-                        else data.get("severity")
-                    ),
-                    "shouldSeeDoctor": data.get("shouldSeeDoctor")
-                    if data.get("shouldSeeDoctor") is not None
-                    else True,
-                }
-        except json.JSONDecodeError:
-            pass
+                return data
+            start = text.find("{", start + 1)
+        return None
 
-        try:
-            match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
-            if match:
-                data = json.loads(match.group(1))
-                if isinstance(data, dict) and "reply" in data:
-                    return {
-                        "reply": data.get("reply", ""),
-                        "suggestedSpecialist": data.get("suggestedSpecialist"),
-                        "severity": (
-                            "unknown"
-                            if data.get("severity") in (None, "null", "Null", "NULL")
-                            else data.get("severity")
-                        ),
-                        "shouldSeeDoctor": data.get("shouldSeeDoctor")
-                        if data.get("shouldSeeDoctor") is not None
-                        else True,
-                    }
-        except (json.JSONDecodeError, AttributeError):
-            pass
+    def _parse_llm_output(self, text: str) -> Dict[str, Any]:
+        """
+        Parse the model's JSON reply, tolerating text or code fences around
+        it. If no JSON object can be read, the "reply" string is taken from
+        the malformed JSON when present, otherwise the whole text is used.
+        Markdown is stripped from the reply in every case.
+        """
+        data = self._first_json_object(text or "")
+        if data is not None:
+            parsed = self._fields_from_json(data)
+            parsed["reply"] = _strip_markdown(str(parsed["reply"]))
+            return parsed
 
-        parsed: Dict[str, Any] = {
+        parsed = {
             "reply": text.strip(),
             "suggestedSpecialist": None,
             "severity": "unknown",
             "shouldSeeDoctor": True,
         }
+
+        reply_match = re.search(r'"reply"\s*:\s*"((?:[^"\\]|\\.)*)"', text, re.DOTALL)
+        if reply_match:
+            try:
+                parsed["reply"] = json.loads(f'"{reply_match.group(1)}"')
+            except json.JSONDecodeError:
+                parsed["reply"] = reply_match.group(1)
 
         spec_match = re.search(r'"suggestedSpecialist"\s*:\s*"([^"]+)"', text)
         if spec_match:
@@ -1004,6 +1028,7 @@ class HokuChatbot:
         if doc_match:
             parsed["shouldSeeDoctor"] = doc_match.group(1).lower() == "true"
 
+        parsed["reply"] = _strip_markdown(parsed["reply"])
         return parsed
 
     def _fallback_response(
