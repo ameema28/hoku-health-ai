@@ -17,6 +17,7 @@ from app.core.security import (
     unusable_password_hash,
 )
 from app.models.models_chat import ChatHistory
+from app.models.safety_log import SafetyLog
 from app.models.user import ROLES, User
 
 DEMO_USER_TTL = timedelta(hours=24)
@@ -87,7 +88,8 @@ def create_demo_user(db: Session) -> User:
 
 def purge_demo_users(db: Session, now: Optional[datetime] = None) -> int:
     """
-    Delete demo users older than 24 hours, and their chat history.
+    Delete demo users older than 24 hours, with their chat history and
+    their safety-log events.
 
     Returns:
         int: number of demo users deleted.
@@ -100,6 +102,7 @@ def purge_demo_users(db: Session, now: Optional[datetime] = None) -> int:
     )
     if stale_ids:
         db.execute(delete(ChatHistory).where(ChatHistory.user_id.in_(stale_ids)))
+        db.execute(delete(SafetyLog).where(SafetyLog.user_id.in_(stale_ids)))
         db.execute(delete(User).where(User.id.in_(stale_ids)))
     db.commit()
     return len(stale_ids)

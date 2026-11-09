@@ -367,6 +367,29 @@ class TestPurge:
         remaining = db.scalars(select(ChatHistory.user_id)).all()
         assert remaining == [fresh_id]
 
+    def test_purge_removes_stale_demo_safety_logs(self, db):
+        from app.models.safety_log import SafetyLog
+
+        now = datetime.now(timezone.utc)
+        stale = add_user(db, user_id=None, is_demo=True)
+        fresh = add_user(db, user_id=None, is_demo=True)
+        stale.created_at = now - timedelta(hours=25)
+        for owner in (stale, fresh):
+            db.add(
+                SafetyLog(
+                    user_id=owner.id,
+                    message="[emergency message, len=10]",
+                    ai_response="[fixed emergency reply, source=keyword]",
+                    violation_type="emergency_triggered",
+                    severity="high",
+                )
+            )
+        db.commit()
+        fresh_id = fresh.id
+
+        assert purge_demo_users(db, now=now) == 1
+        assert db.scalars(select(SafetyLog.user_id)).all() == [fresh_id]
+
     def test_purge_cli(self, db, capsys):
         from app.scripts import purge_demo_users as cli
 

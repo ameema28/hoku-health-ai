@@ -906,7 +906,8 @@ class HokuChatbot:
             log_safety_violation(
                 db=db,
                 user_id=user_id,
-                message=message[:1000],
+                # Placeholder only: the raw patient text is never stored here.
+                message=f"[emergency message, len={len(message)}]",
                 ai_response=f"[fixed emergency reply, source={source}]",
                 violation_type="emergency_triggered",
                 severity="high",

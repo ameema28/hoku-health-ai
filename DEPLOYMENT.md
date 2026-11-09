@@ -117,7 +117,7 @@ Each secret is exposed to the service as an environment variable of the same nam
 
 ### 2.6 What resets, and what persists
 
-- **With `DATABASE_URL` (Neon):** users, chat history, doctors and FAQ embeddings survive restarts. Demo users and their chat history are deleted after 24 hours (on the next demo login).
+- **With `DATABASE_URL` (Neon):** users, chat history, doctors and FAQ embeddings survive restarts. Demo users, their chat history and their safety-log events are deleted after 24 hours (on the next demo login). Emergency events store only a placeholder with the message length, never the message text.
 - **Without `DATABASE_URL`:** everything is SQLite in `/tmp/hoku.db`. Cloud Run's `/tmp` is in memory, belongs to one instance and counts against the memory limit. It is **lost on every restart, new revision or scale to zero**; the start-up seeding recreates doctors and FAQs.
 - **Rate-limit counters and the response cache** are in memory and reset with the instance.
 - The FAQs and doctors are sample data.

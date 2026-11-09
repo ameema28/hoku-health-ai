@@ -270,7 +270,11 @@ class TestChatbotFallbackPaths:
         assert result["doctor_suggestion"] is None
         assert result["fallback_used"] is False
         generate.assert_not_called()
-        assert log_event.call_args.kwargs["violation_type"] == "emergency_triggered"
+        logged = log_event.call_args.kwargs
+        assert logged["violation_type"] == "emergency_triggered"
+        # Only a placeholder is stored, never the patient's words.
+        assert logged["message"] == "[emergency message, len=25]"
+        assert "dad" not in logged["message"]
 
 
 # ---------------------------------------------------------------------------
