@@ -100,11 +100,18 @@ def doctor_sentence(doctor_suggestion: Any) -> str:
         )
     else:
         parts.append(f"A {specialist} can look into this.")
-    if name:
+    has_experience = isinstance(experience, int) and experience > 0
+    # The chatbot fills a missing name with the placeholder "Dr. <specialty>";
+    # repeating that as a name would read like an invented person.
+    if name and name != f"Dr. {specialist}":
         detail = f"{name} ({specialist}"
-        if isinstance(experience, int) and experience > 0:
+        if has_experience:
             detail += f", {experience} years of experience"
         parts.append(f"Suggested doctor: {detail}).")
+    elif has_experience:
+        parts.append(
+            f"The suggested {specialist} has {experience} years of experience."
+        )
     return " ".join(parts)
 
 

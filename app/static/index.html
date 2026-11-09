@@ -331,7 +331,9 @@ footer { color: var(--muted); font-size: 0.75rem; padding-bottom: 8px; }
   function doctorBox(doctor) {
     var box = el("div", "doctor");
     box.appendChild(el("strong", "", "Suggested doctor"));
-    var line = (doctor.doctor_name || "A doctor") + " · " + doctor.specialist;
+    // A missing name arrives as the placeholder "Dr. <specialty>".
+    var named = doctor.doctor_name && doctor.doctor_name !== "Dr. " + doctor.specialist;
+    var line = named ? doctor.doctor_name + " · " + doctor.specialist : doctor.specialist;
     if (!missing(doctor.experience)) { line += " · " + doctor.experience + " years of experience"; }
     box.appendChild(el("div", "", line));
     if (doctor.requested_specialist) {

@@ -61,6 +61,13 @@ class TestBuildFallbackReply:
         assert "Dr. Sana Malik (Dermatologist, 9 years of experience)" in reply
         assert reply.endswith(SAFETY_DISCLAIMER)
 
+    def test_placeholder_name_is_not_repeated(self):
+        doctor = _doctor()
+        doctor.doctor_name = "Dr. Dermatologist"
+        reply = fr.build_fallback_reply("symptom", None, doctor)
+        assert "Dr. Dermatologist" not in reply
+        assert "The suggested Dermatologist has 9 years of experience." in reply
+
     def test_requested_specialist_is_explained(self):
         doctor = _doctor(requested="Orthopedic Surgeon")
         doctor.specialist = "General Physician"
