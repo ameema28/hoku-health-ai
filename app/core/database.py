@@ -22,8 +22,8 @@ from app.core.config import settings
 # ------------------------------------------------------------------
 # Connection Pool Configuration (Day 8)
 # ------------------------------------------------------------------
-# Production-grade pooling ensures DB connections don't become a
-# bottleneck under concurrent load, protecting the <4s NFR-02 ceiling.
+# Pooling keeps DB connections from becoming a bottleneck under
+# concurrent load, which matters for the 4 s response budget.
 # pool_pre_ping=True validates connections on checkout, preventing
 # errors from stale/closed connections (~50-100ms saved per stale hit).
 # ------------------------------------------------------------------

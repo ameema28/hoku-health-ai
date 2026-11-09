@@ -4,9 +4,9 @@ Hoku Health Care - Core Configuration Module.
 Loads and validates application settings from environment variables
 using Pydantic Settings for type safety and runtime validation.
 
-Day 10: adds observability, rate-limiting, and CORS settings. All new
-fields carry safe defaults so existing deployments and the 215-test
-suite are unaffected when the variables are absent.
+The observability, rate-limiting and CORS settings carry safe defaults,
+so existing deployments and tests are unaffected when the variables are
+absent.
 """
 
 import os

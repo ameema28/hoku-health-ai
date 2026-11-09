@@ -88,7 +88,7 @@ Measured on 2026-11-09 on a Windows 11 PC with Docker Desktop, inside the projec
 
 | Area | Result |
 |---|---|
-| Tests | 714 collected: 705 passed, 0 failed, 9 skipped (the pgvector tests, which skip on SQLite); no API key needed (LLM mocked) |
+| Tests | 716 collected: 707 passed, 0 failed, 9 skipped (the pgvector tests, which skip on SQLite); no API key needed (LLM mocked) |
 | Coverage | 88.52% line coverage with no omitted files (CI fails below 80%) |
 | Type checking | `mypy app`: 0 errors, strict optional on (65 files) |
 | Lint | `ruff check` and `ruff format --check`: clean |

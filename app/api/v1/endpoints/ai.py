@@ -1,5 +1,5 @@
 """
-Hoku Health Care - AI Chatbot API Endpoints (Day 10: Production API polish).
+Hoku Health Care - AI Chatbot API Endpoints.
 
 FastAPI router exposing the AI chatbot, chat history, RAG debug/seed
 endpoints, doctor lookup endpoints, and safety monitoring.
@@ -279,10 +279,10 @@ async def enforce_chat_rate_limit(
     tags=["AI Chatbot"],
     responses={
         **_ERROR_RESPONSES,
-        200: {"description": "AI response with clinical metadata."},
+        200: {"description": "AI response with metadata."},
     },
     description=(
-        "Send a health question to Hoku AI and receive a safe, non-diagnostic "
+        "Send a health question to Hoku AI and receive a non-diagnostic "
         "response, grounded in Hoku Health Care's FAQ knowledge base when relevant.\n\n"
         "- **Rate limits:** per user (default 10/minute) and per client IP "
         "(default 20/minute); 429 with `Retry-After` on breach.\n"

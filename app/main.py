@@ -1,5 +1,5 @@
 """
-Hoku Health Care - FastAPI Application Entry Point (Day 10: Production).
+Hoku Health Care - FastAPI Application Entry Point.
 
 Wires together the AI router, observability, and lifecycle management:
 
@@ -190,7 +190,8 @@ async def _prime_db_pool() -> None:
 app = FastAPI(
     title="Hoku Health Care API",
     description=(
-        "AI-powered home healthcare assistance platform.\n\n"
+        "Demo API for a home-healthcare FAQ and doctor-suggestion chatbot. "
+        "General information only, not medical advice.\n\n"
         "The chatbot never provides a definitive diagnosis; every response "
         'ends with a disclaimer: *"Please consult a doctor for proper diagnosis."* '
         'for health replies, *"General information only, not medical advice."* '

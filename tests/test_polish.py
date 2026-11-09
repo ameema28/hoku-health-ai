@@ -255,3 +255,23 @@ class TestDemoPageWording:
         assert banner_rules
         assert not any("display: none" in rule for rule in banner_rules)
         assert "Not medical advice" in html
+
+
+# ---------------------------------------------------------------------------
+# OpenAPI wording: no product or safety claims the project cannot back up
+# ---------------------------------------------------------------------------
+class TestOpenApiWording:
+    def test_description_is_a_demo_not_a_platform_claim(self, client):
+        info = client.get("/openapi.json").json()["info"]
+        description = info["description"]
+        assert description.startswith("Demo API")
+        assert "not medical advice" in description
+        assert "platform" not in description.lower()
+        assert "AI-powered" not in description
+        assert "license" not in info  # no license is granted
+
+    def test_chat_docs_make_no_safety_or_clinical_claim(self, client):
+        op = client.get("/openapi.json").json()["paths"]["/api/ai/chat"]["post"]
+        assert "non-diagnostic" in op["description"]
+        assert "safe," not in op["description"]
+        assert op["responses"]["200"]["description"] == "AI response with metadata."
