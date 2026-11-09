@@ -16,9 +16,11 @@ Day 6 additions:
   specific doctor suggestion into its empathetic response when provided.
 
 Day 7 additions:
-- SAFETY_SYSTEM_APPENDIX: Mandatory system prompt clause forbidding
-  diagnosis and prescription.
 - EMERGENCY_PROMPT: Immediate urgent care instructions prompt.
+
+The no-diagnosis and no-dose rules live in the two reply system prompts
+(REPLY_RULES), and are also enforced after generation by
+app.ai.safety_guardrails.
 """
 
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -31,6 +33,7 @@ Reply rules:
 - Write the "reply" as plain text: no markdown, no headings, no bullet or numbered lists, no asterisks.
 - Do not repeat information as a list. The app shows the suggested doctor and their available times separately, so do not list doctors, time slots or FAQ entries in the reply.
 - Never invent doctor names, prices, phone numbers, addresses or appointment times. Use only facts given in this prompt.
+- Medicines: never give a dose, amount, strength or how often to take any medicine, and never tell anyone to start, stop or change a medicine. Say that a doctor or pharmacist can advise on doses.
 - Do not promise anything you cannot do. You cannot book, cancel or reschedule appointments, send reminders, call or message anyone, or contact a doctor for the patient. Tell the patient how they can do it themselves, for example through the Hoku Health Care app or patient dashboard.
 - Scope: answer only health questions and questions about Hoku Health Care's own services, bookings and coverage. For anything else (other companies, travel, shopping, technology, news and similar topics), say in one or two sentences that you can only help with health questions and Hoku Health Care's services.
 """
@@ -210,23 +213,6 @@ intent_classification_prompt_template = ChatPromptTemplate.from_messages(
         ("human", INTENT_CLASSIFICATION_PROMPT),
     ]
 )
-
-# ---------------------------------------------------------------------------
-# DAY 7: SAFETY SYSTEM APPENDIX (New)
-# ---------------------------------------------------------------------------
-# Appended to all system prompts to reinforce clinical safety boundaries.
-# This is injected as an additional system message or appended to the
-# existing system prompt when safety mode is active.
-SAFETY_SYSTEM_APPENDIX = """
-
-ADDITIONAL SAFETY INSTRUCTIONS (MANDATORY):
-- You must NEVER provide a definitive diagnosis (e.g., "you have pneumonia").
-- You must NEVER prescribe medication or recommend specific dosages.
-- You must NEVER tell a patient to start, stop, or change any medication.
-- You must ALWAYS include the disclaimer: "Please consult a doctor for proper diagnosis."
-- If you are unsure about any medical information, direct the patient to consult a doctor.
-- You are an informational assistant only — not a substitute for professional medical advice.
-"""
 
 # ---------------------------------------------------------------------------
 # DAY 7: EMERGENCY PROMPT (New)

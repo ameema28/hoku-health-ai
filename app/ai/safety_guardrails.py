@@ -3,7 +3,8 @@ Hoku Health Care - Safety Guardrails Module (Day 7).
 
 Post-LLM safety layer that validates AI responses for clinical safety:
 - No definitive diagnoses
-- No prescription/dosage advice
+- No prescription/dosage advice (a stated dose replaces the whole reply
+  with the fixed medication message)
 - Mandatory disclaimer present
 - Sanitization of prohibited content with 3-strike retry logic
 """
@@ -13,6 +14,7 @@ import re
 from typing import List, Tuple
 
 from app.ai.config import ai_settings
+from app.ai.fallback_responses import FALLBACK_MEDICATION
 from app.crud.crud_safety import log_safety_violation
 from app.utils.constants import SAFETY_DISCLAIMER
 
@@ -113,6 +115,48 @@ _PRESCRIPTION_PATTERNS: List[re.Pattern] = [
     re.compile(r"\binject\s+\d+\s*(?:mg|g|ml|units?)\b", re.IGNORECASE),
     re.compile(r"\buse\s+\d+\s*(?:mg|g|ml|drops?|puffs?)\b", re.IGNORECASE),
 ]
+
+# Dose amounts: a reply that states any of these is replaced with the fixed
+# medication message (FALLBACK_MEDICATION) instead of being rewritten, since
+# no sanitised wording of a dose is safe.
+_DOSE_PATTERNS: List[re.Pattern] = [
+    # 500 mg, 1 g, 2.5 ml, 400 IU, 5mcg
+    re.compile(r"\b\d+(?:[.,]\d+)?\s*(?:mg|mcg|µg|g|ml|iu)\b", re.IGNORECASE),
+    # 2 tablets, one capsule, 3 puffs, two teaspoons
+    re.compile(
+        r"\b(?:\d+|one|two|three|four|half\s+a)\s+"
+        r"(?:tablets?|capsules?|pills?|puffs?|drops?|teaspoons?|tsp|spoonfuls?|sachets?)\b",
+        re.IGNORECASE,
+    ),
+    # every 4 hours, every 4 to 6 hours, every 6-8 hours
+    re.compile(r"\bevery\s+\d+\s*(?:(?:-|to)\s*\d+\s*)?hours?\b", re.IGNORECASE),
+]
+
+# "twice a day" / "3 times daily" counts as a dose only next to a medicine word
+# in the same sentence (so "wash the area twice a day" is not flagged).
+_FREQUENCY = re.compile(
+    r"\b(?:once|twice|three\s+times|four\s+times|\d+\s+times)\s+(?:a|per)\s+day\b"
+    r"|\b(?:once|twice|\d+\s+times)\s+daily\b",
+    re.IGNORECASE,
+)
+_MEDICINE_WORDS = re.compile(
+    r"\b(?:tablets?|capsules?|pills?|doses?|dosage|medicines?|medications?|"
+    r"paracetamol|acetaminophen|ibuprofen|aspirin|antibiotics?|syrup|inhaler)\b",
+    re.IGNORECASE,
+)
+
+
+def contains_dose(text: str) -> bool:
+    """True if ``text`` states a medicine dose, amount or dosing interval."""
+    if not text or not isinstance(text, str):
+        return False
+    if any(p.search(text) for p in _DOSE_PATTERNS):
+        return True
+    for sentence in re.split(r"(?<=[.!?])\s+", text):
+        if _FREQUENCY.search(sentence) and _MEDICINE_WORDS.search(sentence):
+            return True
+    return False
+
 
 # Disclaimer pattern: check for the mandatory safety disclaimer
 _DISCLAIMER_PATTERN = re.compile(
@@ -381,6 +425,29 @@ class SafetyGuardrails:
         all_violations: List[str] = []
         current_text = text
         final_severity = "low"
+
+        # A stated dose is never rewritten: the fixed medication message
+        # replaces the whole reply.
+        if contains_dose(text):
+            logger.warning(
+                "Dose amount in reply for user_id=%s: medication fallback used",
+                user_id,
+            )
+            if db is not None:
+                try:
+                    log_safety_violation(
+                        db=db,
+                        user_id=user_id,
+                        message="[post-llm safety check]",
+                        ai_response="[reply withheld: stated a dose]",
+                        violation_type=cls.VIOLATION_PRESCRIPTION,
+                        severity="high",
+                    )
+                except Exception as log_exc:
+                    logger.warning(
+                        "Failed to log safety violation: %s", type(log_exc).__name__
+                    )
+            return (FALLBACK_MEDICATION, [cls.VIOLATION_PRESCRIPTION], "high")
 
         for attempt in range(1, max_retries + 1):
             is_safe, violations = cls.validate_response(current_text)

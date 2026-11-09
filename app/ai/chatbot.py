@@ -258,8 +258,9 @@ class HokuChatbot:
             IntentEnum.MEDICATION: (
                 "Remind the user to follow their doctor's prescription exactly. "
                 "Provide general medication information only. "
-                "Never suggest changing dosage or stopping medication without "
-                "consulting a doctor."
+                "Never give a dose, amount or how often to take a medicine, and "
+                "never suggest starting, stopping or changing a medication; a "
+                "doctor or pharmacist can advise on doses."
             ),
             IntentEnum.GENERAL: (
                 "Provide helpful, accurate health information. "
