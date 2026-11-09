@@ -122,13 +122,11 @@ class HokuChatbot:
     def __init__(self) -> None:
         """Initialize with lazy-loaded Groq clients, intent classifier, RAG, specialist mapper, safety guardrails, and performance layer."""
         self.groq_api_key = ai_settings.groq_api_key
-        self.fast_model = ai_settings.GROQ_FAST_MODEL
         self.main_model = ai_settings.GROQ_MAIN_MODEL
         self.temperature = ai_settings.TEMPERATURE
         self.max_tokens = ai_settings.MAX_TOKENS
         self.timeout = ai_settings.GROQ_TIMEOUT_SECONDS
 
-        self._fast_llm: Optional[Any] = None
         self._main_llm: Optional[Any] = None
         self._chain: Optional[Any] = None
         self._intent_classifier: Optional[IntentClassifier] = None
@@ -144,7 +142,6 @@ class HokuChatbot:
         Call this once at application startup (e.g., from main.py lifespan).
         """
         logger.info("Warming up HokuChatbot LLM clients...")
-        _ = self.fast_llm
         main = self.main_llm
         _ = self.intent_classifier.chain
 
@@ -157,26 +154,6 @@ class HokuChatbot:
                 logger.warning("Chain warm-up skipped: %s", type(exc).__name__)
 
         logger.info("HokuChatbot warm-up complete.")
-
-    @property
-    def fast_llm(self) -> Any:
-        """Lazy initializer for fast classification model."""
-        if self._fast_llm is None:
-            if not LANGCHAIN_AVAILABLE or ChatGroq is None:
-                return None
-            try:
-                self._fast_llm = self.llm_factory.get_fast_llm(
-                    api_key=self.groq_api_key,
-                    model=self.fast_model,
-                    request_timeout=self.timeout,
-                )
-                if self._fast_llm is None:
-                    raise RuntimeError("LLMFactory returned no fast LLM")
-                logger.info("Fast LLM (%s) initialized via LLMFactory", self.fast_model)
-            except Exception as exc:
-                logger.warning("Failed to initialize fast LLM: %s", type(exc).__name__)
-                self._fast_llm = None
-        return self._fast_llm
 
     @property
     def main_llm(self) -> Any:

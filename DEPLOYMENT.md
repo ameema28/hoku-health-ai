@@ -88,7 +88,7 @@ Each secret is exposed to the service as an environment variable of the same nam
 | `CHAT_IP_RATE_PER_MINUTE` | optional, default `20` | Chats per client IP per minute, across all sessions. |
 | `DEMO_RATE_LIMIT_PER_HOUR` | optional, default `20` | Demo sessions per client IP per hour. |
 | `RAG_SIMILARITY_THRESHOLD` | optional, default `0.35` | Minimum FAQ similarity for grounding (see 2.11). |
-| `GROQ_FAST_MODEL` / `GROQ_MAIN_MODEL` | optional, defaults `llama-3.1-8b-instant` / `llama-3.3-70b-versatile` | Change them if Groq stops serving a model. |
+| `GROQ_FAST_MODEL` / `GROQ_MAIN_MODEL` | optional, defaults `llama-3.1-8b-instant` / `llama-3.3-70b-versatile` | Change them if Groq stops serving a model. `GROQ_FAST_MODEL` is used for intent classification and symptom extraction (unless `INTENT_MODEL` / `SYMPTOM_EXTRACTION_MODEL` are set); `GROQ_MAIN_MODEL` writes the reply. |
 
 ### 2.4 Health, readiness and cold start
 

@@ -44,6 +44,22 @@ def test_groq_sdk_and_chatgroq_construct_offline():
     )
 
 
+def test_fast_model_setting_drives_intent_and_symptom_models(monkeypatch):
+    """One setting to change if Groq retires the fast model."""
+    from app.ai.config import AISettings
+
+    for name in ("INTENT_MODEL", "SYMPTOM_EXTRACTION_MODEL"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("GROQ_FAST_MODEL", "new-fast-model")
+    cfg = AISettings()
+    assert cfg.INTENT_MODEL == "new-fast-model"
+    assert cfg.SYMPTOM_EXTRACTION_MODEL == "new-fast-model"
+
+    monkeypatch.setenv("INTENT_MODEL", "intent-only")
+    assert AISettings().INTENT_MODEL == "intent-only"
+    assert AISettings().SYMPTOM_EXTRACTION_MODEL == "new-fast-model"
+
+
 def test_factory_fast_llm_real_client_has_no_retries(fake_key):
     from app.ai.llm_optimizer import LLMFactory
 

@@ -116,12 +116,10 @@ def mock_llm_chain():
 class TestHokuChatbotInitialization:
     def test_init_sets_config(self, chatbot, mock_settings):
         assert chatbot.main_model == "llama-3.3-70b-versatile"
-        assert chatbot.fast_model == "llama-3.1-8b-instant"
         assert chatbot.temperature == 0.3
 
     def test_lazy_llm_loading(self, chatbot):
         assert chatbot._main_llm is None
-        assert chatbot._fast_llm is None
 
     def test_fallback_when_no_api_key(self, mock_settings):
         mock_settings.groq_api_key = ""

@@ -23,6 +23,7 @@ Day 8 additions:
 
 import logging
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.config import ENV_FILE
@@ -46,7 +47,10 @@ class AISettings(BaseSettings):
     )
 
     # ------------------------------------------------------------------
-    # Model Selection
+    # Model Selection. If Groq stops serving a model, change these two:
+    # GROQ_FAST_MODEL is the default for intent classification and symptom
+    # extraction (INTENT_MODEL / SYMPTOM_EXTRACTION_MODEL override it), and
+    # GROQ_MAIN_MODEL writes the patient-facing reply.
     # ------------------------------------------------------------------
     GROQ_FAST_MODEL: str = "llama-3.1-8b-instant"
     GROQ_MAIN_MODEL: str = "llama-3.3-70b-versatile"
@@ -70,12 +74,12 @@ class AISettings(BaseSettings):
     # ------------------------------------------------------------------
     MEMORY_MESSAGE_LIMIT: int = 10
     MEMORY_MAX_TOKENS: int = 307
-    TIKTOKEN_ENABLED: bool = True
 
     # ------------------------------------------------------------------
     # Intent Classification (Day 4)
     # ------------------------------------------------------------------
-    INTENT_MODEL: str = "llama-3.1-8b-instant"
+    #: Empty means "use GROQ_FAST_MODEL" (filled in by _default_fast_models).
+    INTENT_MODEL: str = ""
     # CRITICAL FIX: Increased from 0.5s to 1.0s. On cold start, the fast
     # LLM (8B) needs time to initialize + make the first API call.
     # The 0.5s timeout was causing intent classification to fallback to
@@ -95,8 +99,8 @@ class AISettings(BaseSettings):
     # If exceeded, defaults to ["fever"] -> General Physician to protect NFR-02.
     SYMPTOM_EXTRACTION_TIMEOUT: float = 0.2
 
-    # Model for LLM-based symptom extraction fallback.
-    SYMPTOM_EXTRACTION_MODEL: str = "llama-3.1-8b-instant"
+    # Model for LLM-based symptom extraction fallback ("" = GROQ_FAST_MODEL).
+    SYMPTOM_EXTRACTION_MODEL: str = ""
 
     # Maximum number of doctors to return in a specialist lookup.
     DOCTOR_LOOKUP_LIMIT: int = 5
@@ -111,8 +115,17 @@ class AISettings(BaseSettings):
     # Hardcoded safe fallback response when all safety retries fail.
     # This is the absolute last resort — never returns unsafe content.
     SAFETY_FALLBACK_RESPONSE: str = (
-        "I can't give a medical opinion on this. " "A doctor can look at it with you."
+        "I can't give a medical opinion on this. A doctor can look at it with you."
     )
+
+    @model_validator(mode="after")
+    def _default_fast_models(self) -> "AISettings":
+        """Unset INTENT_MODEL / SYMPTOM_EXTRACTION_MODEL follow GROQ_FAST_MODEL."""
+        if not self.INTENT_MODEL:
+            self.INTENT_MODEL = self.GROQ_FAST_MODEL
+        if not self.SYMPTOM_EXTRACTION_MODEL:
+            self.SYMPTOM_EXTRACTION_MODEL = self.GROQ_FAST_MODEL
+        return self
 
     @property
     def groq_api_key(self) -> str:

@@ -65,11 +65,7 @@ class Settings(BaseSettings):
 
     # Groq AI
     GROQ_API_KEY: str = ""
-    # Day 8.1: aligned with app/ai/config.py AISettings, which is the module
-    # the chatbot actually reads. Both read the same case-insensitive env
-    # vars; the legacy llama3-*-8192 names are decommissioned on Groq.
-    GROQ_FAST_MODEL: str = "llama-3.1-8b-instant"
-    GROQ_MAIN_MODEL: str = "llama-3.3-70b-versatile"
+    # Model names live in app/ai/config.py (AISettings).
 
     # Embeddings
     EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
