@@ -3,7 +3,7 @@ Hoku Health Care - Structured Logging & Request Correlation (Day 10).
 
 Replaces the ad-hoc ``logging.basicConfig`` format from
 ``app/core/config.py::configure_logging`` with machine-parseable JSON,
-so Render's log drain, Grafana Loki, or CloudWatch Insights can query
+so Cloud Logging (Cloud Run), Grafana Loki or CloudWatch Insights can query
 fields instead of regexing free text.
 
 Three pieces:
@@ -59,6 +59,8 @@ user_id_ctx: ContextVar[Optional[int]] = ContextVar("user_id", default=None)
 
 CORRELATION_HEADER: Final[str] = "X-Correlation-ID"
 
+_CORRELATION_ID_RE: Final[Pattern[str]] = re.compile(r"[A-Za-z0-9-]{1,64}")
+
 
 def get_correlation_id() -> str:
     """
@@ -76,12 +78,17 @@ def set_correlation_id(value: Optional[str] = None) -> str:
 
     Args:
         value: An inbound ID to reuse (e.g. from an upstream gateway).
-            When None or blank, a fresh UUID4 hex is generated.
+            Used only if it is 1-64 letters, digits or hyphens; otherwise
+            (or when None/blank) a fresh UUID4 hex is generated.
 
     Returns:
         str: The ID that was bound.
     """
-    resolved = value.strip() if value and value.strip() else uuid.uuid4().hex
+    candidate = value.strip() if value else ""
+    # An inbound ID is echoed in a header, JSON bodies and logs: accept only
+    # a short token of letters, digits and hyphens.
+    resolved = candidate if _CORRELATION_ID_RE.fullmatch(candidate) else ""
+    resolved = resolved or uuid.uuid4().hex
     correlation_id_ctx.set(resolved)
     return resolved
 
@@ -287,6 +294,8 @@ class JSONFormatter(logging.Formatter):
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(record.created))
             + f".{int(record.msecs):03d}Z",
             "level": record.levelname,
+            # Cloud Logging (Cloud Run) reads the log level from "severity".
+            "severity": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
             "correlation_id": get_correlation_id(),
@@ -410,7 +419,9 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
     """
 
     #: Paths excluded from access logging to keep scrape noise down.
-    SKIP_PATHS: frozenset = frozenset({"/metrics", "/api/ai/health", "/favicon.ico"})
+    SKIP_PATHS: frozenset = frozenset(
+        {"/metrics", "/health", "/api/ai/health", "/favicon.ico"}
+    )
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         """
