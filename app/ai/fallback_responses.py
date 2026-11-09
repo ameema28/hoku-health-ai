@@ -38,8 +38,8 @@ FALLBACK_MEDICATION: str = (
 )
 
 FALLBACK_BOOKING: str = (
-    "You can book an appointment directly through the patient dashboard. "
-    f"{SAFETY_DISCLAIMER}"
+    "Booking is not part of this demo, so I can't make, change or cancel "
+    f"appointments here. {SAFETY_DISCLAIMER}"
 )
 
 FALLBACK_EMERGENCY: str = (

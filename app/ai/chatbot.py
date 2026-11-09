@@ -241,9 +241,9 @@ class HokuChatbot:
                 "Assess severity and suggest appropriate specialists."
             ),
             IntentEnum.BOOKING: (
-                "Guide the user to book an appointment via the patient dashboard. "
-                "Explain the booking process and available specialties. "
-                "Do not make appointments directly -- direct them to the portal."
+                "Explain the booking process and available specialties from the "
+                "FAQ content. Booking is not part of this demo: say so, and "
+                "never claim an appointment was made, changed or cancelled."
             ),
             IntentEnum.MEDICATION: (
                 "Remind the user to follow their doctor's prescription exactly. "

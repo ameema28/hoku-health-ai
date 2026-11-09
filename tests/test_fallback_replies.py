@@ -379,6 +379,12 @@ class TestReplyRules:
         assert "do not repeat information as a list" in lowered
         assert "do not promise anything you cannot do" in lowered
         assert "answer only health questions" in lowered
+        assert "booking is not part of this demo" in lowered
+        assert "patient dashboard" not in lowered
+
+    def test_booking_fallback_says_booking_is_not_in_the_demo(self):
+        assert "Booking is not part of this demo" in fr.FALLBACK_BOOKING
+        assert "dashboard" not in fr.FALLBACK_BOOKING
 
     def test_rules_reach_the_rendered_prompt_on_both_paths(self):
         plain = chat_prompt_template.format_messages(
