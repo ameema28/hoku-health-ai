@@ -25,9 +25,25 @@ logger = logging.getLogger(__name__)
 # Each pattern is conservative — we bias toward flagging over missing.
 #
 # Definitive diagnosis patterns: language that asserts a medical condition
+#
+# "If you have a fever, rest..." is a condition, not a diagnosis: the
+# "you have ..." patterns skip matches preceded by if/when/whether/do/in case.
+# (Fixed-width lookbehinds, so a single space is assumed.)
+_NOT_CONDITIONAL = r"(?<!if )(?<!when )(?<!whether )(?<!do )(?<!in case )"
+
+# Conditions named in the first "you have <condition>" pattern. The
+# sanitiser uses the same list, so every match can be rewritten.
+_DIAGNOSIS_TERMS = (
+    r"pneumonia|bronchitis|hypertension|diabetes|asthma|infection|cold|flu|"
+    r"migraine|headache|cough|fever"
+)
+
 _DIAGNOSIS_PATTERNS: List[re.Pattern] = [
     re.compile(
-        r"\byou\s+have\s+(?:a\s+)?(?:\w+\b(?:itis|osis|emia|oma|pathy|syndrome)|pneumonia|bronchitis|hypertension|diabetes|asthma|infection|cold|flu|migraine|headache|cough|fever)",
+        _NOT_CONDITIONAL
+        + r"\byou\s+have\s+(?:a\s+)?(?:\w+\b(?:itis|osis|emia|oma|pathy|syndrome)|"
+        + _DIAGNOSIS_TERMS
+        + r")",
         re.IGNORECASE,
     ),
     # ------------------------------------------------------------------
@@ -62,12 +78,17 @@ _DIAGNOSIS_PATTERNS: List[re.Pattern] = [
     re.compile(r"\byou\s+are\s+suffering\s+from\b", re.IGNORECASE),
     re.compile(r"\bdiagnosis\s+is\s+", re.IGNORECASE),
     re.compile(r"\byour\s+condition\s+is\s+", re.IGNORECASE),
-    re.compile(r"\byou\s+have\s+been\s+diagnosed\s+with\b", re.IGNORECASE),
+    re.compile(
+        _NOT_CONDITIONAL + r"\byou\s+have\s+been\s+diagnosed\s+with\b", re.IGNORECASE
+    ),
     re.compile(
         r"\bthis\s+is\s+(?:a\s+)?(?:\w+\s+)?(?:infection|disease|disorder|condition)\b",
         re.IGNORECASE,
     ),
-    re.compile(r"\byou\s+have\s+(?:developed|contracted)\s+\w+", re.IGNORECASE),
+    re.compile(
+        _NOT_CONDITIONAL + r"\byou\s+have\s+(?:developed|contracted)\s+\w+",
+        re.IGNORECASE,
+    ),
     re.compile(r"\bit\s+is\s+clear\s+that\s+you\s+have\b", re.IGNORECASE),
     re.compile(r"\byour\s+symptoms\s+indicate\s+", re.IGNORECASE),
     re.compile(r"\bthis\s+confirms\s+", re.IGNORECASE),
@@ -219,7 +240,10 @@ class SafetyGuardrails:
         # Replace diagnosis language with safe alternatives
         diagnosis_replacements = [
             (
-                r"\byou\s+have\s+(?:a\s+)?(\w+(?:itis|osis|emia|oma|pathy|syndrome)|pneumonia|bronchitis|hypertension|diabetes|asthma|infection|cold|flu|migraine)\b",
+                _NOT_CONDITIONAL
+                + r"\byou\s+have\s+(?:a\s+)?(\w+(?:itis|osis|emia|oma|pathy|syndrome)|"
+                + _DIAGNOSIS_TERMS
+                + r")\b",
                 r"You mentioned symptoms that could be related to \1, but only a doctor can confirm this.",
             ),
             (
@@ -234,13 +258,16 @@ class SafetyGuardrails:
                 r"\byour\s+condition\s+is\s+",
                 "your symptoms could be related to several conditions, and ",
             ),
-            (r"\byou\s+have\s+been\s+diagnosed\s+with\b", "a diagnosis of"),
+            (
+                _NOT_CONDITIONAL + r"\byou\s+have\s+been\s+diagnosed\s+with\b",
+                "a diagnosis of",
+            ),
             (
                 r"\bthis\s+is\s+(?:a\s+)?(\w+\s+(?:infection|disease|disorder|condition))\b",
                 r"this could be related to \1, but",
             ),
             (
-                r"\byou\s+have\s+(?:developed|contracted)\s+(\w+)\b",
+                _NOT_CONDITIONAL + r"\byou\s+have\s+(?:developed|contracted)\s+(\w+)\b",
                 r"you mentioned symptoms that might suggest \1, but",
             ),
             (

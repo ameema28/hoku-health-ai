@@ -116,8 +116,7 @@ class AISettings(BaseSettings):
     # Hardcoded safe fallback response when all safety retries fail.
     # This is the absolute last resort — never returns unsafe content.
     SAFETY_FALLBACK_RESPONSE: str = (
-        "I am unable to provide a medical opinion for this query. "
-        "Please consult a qualified doctor immediately."
+        "I can't give a medical opinion on this. " "A doctor can look at it with you."
     )
 
     @property

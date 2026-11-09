@@ -35,8 +35,7 @@ def mock_settings():
     settings.groq_api_key = "test-api-key"
     settings.SAFETY_MAX_RETRIES = 3
     settings.SAFETY_FALLBACK_RESPONSE = (
-        "I am unable to provide a medical opinion for this query. "
-        "Please consult a qualified doctor immediately."
+        "I can't give a medical opinion on this. " "A doctor can look at it with you."
     )
     return settings
 

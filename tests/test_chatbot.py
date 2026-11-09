@@ -31,8 +31,11 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
 from app.ai.chatbot import HokuChatbot
+from app.ai.config import ai_settings as _ai_settings
 from app.ai.intent_classifier import IntentEnum
 from app.utils.constants import SAFETY_DISCLAIMER
+
+SAFETY_FALLBACK = _ai_settings.SAFETY_FALLBACK_RESPONSE
 
 
 @pytest.fixture
@@ -424,6 +427,12 @@ class TestSafetyConvergence:
         "Since you have been experiencing fatigue, rest and hydration help.",
         "You have several options for booking an appointment.",
         "You may want to rest and drink fluids.",
+        # Conditional wording is not a diagnosis.
+        "If you have a fever, rest and drink fluids.",
+        "If you have a headache, try resting in a dark room.",
+        "When you have a cough that lasts weeks, see a doctor.",
+        "Do you have a fever as well?",
+        "In case you have been diagnosed with asthma, keep your inhaler close.",
     ]
 
     UNSAFE = [
@@ -434,7 +443,22 @@ class TestSafetyConvergence:
         "It is clear that you have pneumonia.",
         "This confirms a viral infection.",
         "Stop taking metformin immediately.",
+        # One sample per diagnosis pattern (each must converge).
+        "You have a fever.",
+        "You have a headache and a cough.",
+        "You have been diagnosed with asthma.",
+        "Your diagnosis is bronchitis.",
+        "Your condition is serious.",
+        "This is a bacterial infection.",
+        "You have developed pneumonia.",
     ]
+
+    def test_every_diagnosis_pattern_has_an_unsafe_sample(self):
+        """Each validate pattern is exercised by at least one UNSAFE sample."""
+        from app.ai.safety_guardrails import _DIAGNOSIS_PATTERNS
+
+        for pattern in _DIAGNOSIS_PATTERNS:
+            assert any(pattern.search(t) for t in self.UNSAFE), pattern.pattern
 
     @pytest.mark.parametrize("text", BENIGN)
     def test_benign_text_is_not_flagged(self, text, mock_db):
@@ -445,7 +469,7 @@ class TestSafetyConvergence:
             text=f"{text} {SAFETY_DISCLAIMER}", user_id=1, db=None
         )
         assert (
-            "unable to provide a medical opinion" not in result
+            SAFETY_FALLBACK not in result
         ), f"3-strike fallback fired on benign text: {text!r}"
         assert text.split(",")[0][:20] in result
 
@@ -458,7 +482,7 @@ class TestSafetyConvergence:
             text=f"{text} {SAFETY_DISCLAIMER}", user_id=1, db=None
         )
         assert violations, "expected at least one violation to be recorded"
-        assert "unable to provide a medical opinion" not in result, (
+        assert SAFETY_FALLBACK not in result, (
             f"sanitiser failed to converge for {text!r} — check that its "
             f"replacement does not reproduce its own trigger phrase"
         )
